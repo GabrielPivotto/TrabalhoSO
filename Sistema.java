@@ -428,6 +428,33 @@ public class Sistema {
 	// -----------------------------------------
 	// ------------------ load é invocado a partir de requisição do usuário
 
+	public class GM {
+		boolean aloca(int nroPalavras, int[] tabelaPag) { // determina os frames que os quadros serao alocados
+			if(((nroPalavras + so.tamFrame - 1)/so.tamFrame) > so.qtdFramesDisp) {return false;} // se nao tem frame suficiente, nao aloca
+			
+			int tamMem = hw.mem.pos.length;
+			int contAux = 0;
+			Word[] memPos = hw.mem.pos;
+
+			for(int i = 0; i < tamMem; i += so.tamFrame) { // "i" representa a primeira linha do frame atual
+				if(memPos[i].opc == Opcode.___ ) { // se o conteudo na memoria for vazio, coloca o numero do frame alocado (i/so.tamFrame)
+					tabelaPag[contAux] = i/so.tamFrame;
+					System.out.println("Pagina " + i/so.tamFrame);
+					contAux++;
+					so.qtdFramesDisp--;
+					
+					if(contAux >= tabelaPag.length) {break;}
+				}
+			}
+
+			return true;
+		}
+
+		void desaloca(int[] tabelaPag) {
+
+		}
+	}
+
 	// carga na memória
 	public class Utilities {
 		private HW hw;
@@ -439,26 +466,29 @@ public class Sistema {
 		}
 
 		private void loadProgram(Word[] p) {
-			contProg++;	// gera id unico para o processo
-			int qtdPag = (p.length + so.tamFrame - 1)/so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
-			PCB pcb = new PCB(contProg, new int[qtdPag]); // gera PCB para o processo
+			int[] tabPag = new int[(p.length + so.tamFrame - 1)/so.tamFrame];
 
-			if(so.gerenteMem.aloca(p.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
-				//inserir loop para alocar na memoria as paginas que estao em pcb.tabelaPag
-				//Modificar codigo original a baixo
-				//=============================//=============================
-				//Word[] m = hw.mem.pos; // m[] é o array de posições memória do hw
-				//for (int i = 0; i < p.length; i++) {
-				//	m[i].opc = p[i].opc;
-				//	m[i].ra = p[i].ra;
-				//	m[i].rb = p[i].rb;
-				//	m[i].p = p[i].p;
-				//}
-				//============================//===============================
+			if(so.gerenteMem.aloca(p.length, tabPag)) {
+				Word[] m = hw.mem.pos;
+				int contLinha = 0;
 
-				so.addListProcessos(pcb);
+				for(int i = 0; i < tabPag.length; i++) { // para cada pagina
+					for(int j = 0; j < so.tamFrame; j++) { // para cada linha que cabe em uma pagina
+
+						// pega o frame apontado pela tabPag (tabPag[i]) e vai incrementando linha por linha (+j)
+						// alocando as instrucoes do programa na memoria
+						m[tabPag[i]*so.tamFrame+j].opc = p[contLinha].opc;
+						m[tabPag[i]*so.tamFrame+j].ra = p[contLinha].ra;
+						m[tabPag[i]*so.tamFrame+j].rb = p[contLinha].rb;
+						m[tabPag[i]*so.tamFrame+j].p = p[contLinha].p;
+						
+						contLinha++;
+
+						if(contLinha >= p.length) {break;}
+					}
+					System.out.println("Qtd de linhas transferidas = " + contLinha);
+				}
 			}
-
 		}
 
 		// dump da memória
@@ -505,30 +535,39 @@ public class Sistema {
 		}
 
 	}
+	
+	public class GP {
+		private int novoIdProcesso = 0; 
 
-	public class GM {
-		boolean aloca(int nroPalavras, int[] tabelaPag) { // determina os frames que os quadros serao alocados
-			if(((nroPalavras + so.tamFrame - 1)/so.tamFrame) < so.qtdFramesDisp) {return false;} // se nao tem frame suficiente, nao aloca
-			
-			int tamMem = hw.mem.pos.length;
-			int contAux = 0;
-			Word[] memPos = hw.mem.pos;
+		boolean criaProcesso(Word[] programa) {
+			novoIdProcesso++;
+			int qtdPag = (programa.length + so.tamFrame - 1)/so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
+			PCB pcb = new PCB(novoIdProcesso, new int[qtdPag]); // gera PCB para o processo
 
-			for(int i = 0; i < tamMem; i += so.tamFrame+1) { // "i" representa a primeira linha do frame atual
-				if(memPos[i].opc == Opcode.___ ) { // se o conteudo na memoria for vazio, coloca o numero do frame alocado (i/so.tamFrame)
-					tabelaPag[contAux] = i/so.tamFrame;
-					contAux++;
-					so.qtdFramesDisp--;
+			if(so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
+				so.addListProcessos(pcb);
+
+				return true;
+			}
+
+			return false;
+		}
+
+		boolean desalocaProcesso(int id) {
+			for(PCB pcb : so.listaDeProcessos) { // procura por todos os pcb
+				if(pcb.id == id) { 							// se achou...
+					so.gerenteMem.desaloca(pcb.tabelaPag); 	// ...tira da memoria...
+					so.removeListProcesso(id); 				// ...e tira da lista de processos do SO
+					
+					return true;
 				}
 			}
 
-			return true;
-		}
-
-		void desaloca(int[] tabelaPag) {
-
+			return false;
 		}
 	}
+
+	
 
 	public class SO {
 		public InterruptHandling ih;
@@ -536,6 +575,7 @@ public class Sistema {
 		public Utilities utils;
 		public int tamFrame;
 		public GM gerenteMem;
+		public GP gerenteProg;
 		public PCB[] listaDeProcessos;
 		public int qtdFramesDisp; // aparentemente, o SO guarda qtd de frames disp, checar se isto eh verdade
 		public int contProcessos;
@@ -548,6 +588,7 @@ public class Sistema {
 
 			tamFrame = _tamFrame;
 			gerenteMem = new GM();
+			gerenteProg = new GP();
 			listaDeProcessos = new PCB[hw.mem.pos.length/tamFrame]; // o maximo de processos seria a qtd de paginas na memoria
 			contProcessos = 0;
 			qtdFramesDisp = hw.mem.pos.length/tamFrame;
