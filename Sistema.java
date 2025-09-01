@@ -150,28 +150,24 @@ public class Sistema {
 														  // esta devidamente setado
 			
 			int[] tabPag = so.getProcesso(id).tabelaPag;
-			int contPag = 0;
-			int contLinha = 0;
+			int tFrame = so.tamFrame;
+			so.atualizaPtrProcess(id); // atualiza o ptr que diz qual processo esta rodando
+									   // (aponta pra pos na lista de processos do S.O.)
 
 			cpuStop = false;
 			while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
 				// --------------------------------------------------------------------------------------------------
 				// FASE DE FETCH
-				if(contLinha == 8) {
-					contLinha = 0;
-					contPag++;
-				}
-				int pagAtual = pc/so.tamFrame;   // pc/so.tamFrame -> pagina atual
-				int linhaAtual = pc%so.tamFrame; // pc%so.tamFrame -> deslocamento na pagina
+				int pagAtual = pc/tFrame;   // pc/so.tamFrame -> pagina atual
+				int linhaAtual = pc%tFrame; // pc%so.tamFrame -> deslocamento na pagina
 
-				System.out.println("pagina atual = " + pc/so.tamFrame);
-				System.out.println("linha atual = " + pc%so.tamFrame);
+				System.out.println("pagina atual = " + pc/tFrame);
+				System.out.println("linha atual = " + pc%tFrame);
 				System.out.println("PC = " + pc);
-				System.out.println("Endereco traduzido = " + (tabPag[pagAtual]*so.tamFrame + linhaAtual));
+				System.out.println("Endereco traduzido = " + (tabPag[pagAtual]*tFrame + linhaAtual));
 				
-				if (legal(tabPag[pagAtual]*so.tamFrame + linhaAtual)) { // pc valido
-					contLinha++;
-					ir = m[tabPag[pagAtual]*so.tamFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+				if (legal(tabPag[pagAtual]*tFrame + linhaAtual)) { // pc valido
+					ir = m[tabPag[pagAtual]*tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
 					             // resto é dump de debug
 					
 
@@ -199,20 +195,29 @@ public class Sistema {
 							break;
 						case LDD: // Rd <- [A]
 							if (legal(ir.p)) {
-								reg[ir.ra] = m[ir.p].p;
+								int pag = ir.p/tFrame;  
+								int deslocamento = ir.p%tFrame;
+
+								reg[ir.ra] = m[tabPag[pag]*tFrame + deslocamento].p;
 								pc++;
 							}
 							break;
 						case LDX: // RD <- [RS] // NOVA
 							if (legal(reg[ir.rb])) {
-								reg[ir.ra] = m[reg[ir.rb]].p;
+								int pag = reg[ir.rb]/tFrame;  
+								int deslocamento = reg[ir.rb]%tFrame;
+
+								reg[ir.ra] = m[tabPag[pag]*tFrame + deslocamento].p;
 								pc++;
 							}
 							break;
 						case STD: // [A] ← Rs
 							if (legal(ir.p)) {
-								m[ir.p].opc = Opcode.DATA;
-								m[ir.p].p = reg[ir.ra];
+								int pag = ir.p/tFrame;  
+								int deslocamento = ir.p%tFrame;
+
+								m[tabPag[pag]*tFrame + deslocamento].opc = Opcode.DATA;
+								m[tabPag[pag]*tFrame + deslocamento].p = reg[ir.ra];
 								pc++;
                                 if (debug) 
 								    {   System.out.print("                                  ");   
@@ -368,6 +373,8 @@ public class Sistema {
 					cpuStop = true;                   // nesta versao, para a CPU
 				}
 			} // FIM DO CICLO DE UMA INSTRUÇÃO
+			
+			//so.gerenteProg.desalocaProcesso(so.gerenteProg.novoIdProcesso); //inserido aqui por finalidade de teste da funcao REMOVER DEPOIS
 		}
 	}
 	// ------------------ C P U - fim
@@ -447,36 +454,7 @@ public class Sistema {
 	// -----------------------------------------
 	// ------------------ load é invocado a partir de requisição do usuário
 
-	public class GP {
-		public int novoIdProcesso = 0; 
-
-		boolean criaProcesso(Word[] programa) {
-			novoIdProcesso++;
-			int qtdPag = (programa.length + so.tamFrame - 1)/so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
-			PCB pcb = new PCB(novoIdProcesso, new int[qtdPag]); // gera PCB para o processo
-
-			if(so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
-				so.addListProcessos(pcb);
-
-				return true;
-			}
-
-			return false;
-		}
-
-		boolean desalocaProcesso(int id) {
-			for(PCB pcb : so.listaDeProcessos) { // procura por todos os pcb
-				if(pcb.id == id) { 							// se achou...
-					so.gerenteMem.desaloca(pcb.tabelaPag); 	// ...tira da memoria...
-					so.removeListProcesso(id); 				// ...e tira da lista de processos do SO
-					
-					return true;
-				}
-			}
-
-			return false;
-		}
-	}
+	
 
 	// carga na memória
 	public class Utilities {
@@ -561,13 +539,14 @@ public class Sistema {
 		boolean aloca(int nroPalavras, int[] tabelaPag) { // determina os frames que os quadros serao alocados
 			if(((nroPalavras + so.tamFrame - 1)/so.tamFrame) > so.qtdFramesDisp) {return false;} // se nao tem frame suficiente, nao aloca
 			
-			int tamMem = hw.mem.pos.length;
+			int qtdPag = so.posOcupadas.length;
 			int contAux = 0;
-			Word[] memPos = hw.mem.pos;
 
-			for(int i = 0; i < tamMem; i += so.tamFrame) { // "i" representa a primeira linha do frame atual
-				if(memPos[i].opc == Opcode.___ ) { // se o conteudo na memoria for vazio, coloca o numero do frame alocado (i/so.tamFrame)
-					tabelaPag[contAux] = i/so.tamFrame;
+			for(int i = 0; i < qtdPag; i++) { // "i" representa a primeira linha do frame atual
+				if(!so.posOcupadas[i]) { // se o frame nao esta ocupado, coloca o numero do frame alocado (i/so.tamFrame)
+					tabelaPag[contAux] = i;
+					so.posOcupadas[i] = true; //ocupa pos na memoria
+
 					contAux++;
 					so.qtdFramesDisp--;
 					
@@ -579,13 +558,41 @@ public class Sistema {
 		}
 
 		void desaloca(int[] tabelaPag) {
-
+			for(int i : tabelaPag) {so.posOcupadas[i] = false;}
 		}
 	}
-	
-	
 
-	
+	public class GP {
+		public int novoIdProcesso = 0; 
+
+		boolean criaProcesso(Word[] programa) {
+			novoIdProcesso++;
+			System.out.println("GP id = " + novoIdProcesso);
+			int qtdPag = (programa.length + so.tamFrame - 1)/so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
+			PCB pcb = new PCB(novoIdProcesso, new int[qtdPag]); // gera PCB para o processo
+
+			if(so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
+				so.addListProcessos(pcb);
+
+				return true;
+			}
+
+			return false;
+		}
+
+		boolean desalocaProcesso(int id) {
+			for(PCB pcb : so.listaDeProcessos) { // procura por todos os pcb
+				if(pcb.id == id) { 							// se achou...
+					so.gerenteMem.desaloca(pcb.tabelaPag); 	// ...tira da memoria...
+					so.removeListProcesso(id); 				// ...e tira da lista de processos do SO
+					
+					return true;
+				}
+			}
+
+			return false;
+		}
+	}
 
 	public class SO {
 		public InterruptHandling ih;
@@ -594,9 +601,11 @@ public class Sistema {
 		public int tamFrame;
 		public GM gerenteMem;
 		public GP gerenteProg;
-		public PCB[] listaDeProcessos;
-		public int qtdFramesDisp; // aparentemente, o SO guarda qtd de frames disp, checar se isto eh verdade
-		public int contProcessos;
+		public PCB[] listaDeProcessos;	// guarda os processos (PCB) que estao em memoria (pode ser considerado a lista de ready)
+		public int ptrProcessRunning;	// vai guardar a pos na lista de PCB do processo que esta rodando
+		public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
+		public int contProcessos; 		// conta a qtd de processos
+		public boolean[] posOcupadas; 	// guarda os frames disponiveis (false) e ocupados (true)
 
 		public SO(HW hw, int _tamFrame) {
 			ih = new InterruptHandling(hw); // rotinas de tratamento de int
@@ -610,6 +619,19 @@ public class Sistema {
 			listaDeProcessos = new PCB[hw.mem.pos.length/tamFrame]; // o maximo de processos seria a qtd de paginas na memoria
 			contProcessos = 0;
 			qtdFramesDisp = hw.mem.pos.length/tamFrame;
+			posOcupadas = new boolean[hw.mem.pos.length/tamFrame];
+			ptrProcessRunning = -1;
+
+		}
+
+		private void atualizaPtrProcess(int id) {
+			for(int i = 0; i < listaDeProcessos.length-1; i++) {
+				if(listaDeProcessos[i] != null && listaDeProcessos[i].id == id) {
+					ptrProcessRunning = i;
+
+					break;
+				}
+			}
 		}
 
 		private boolean addListProcessos(PCB pcb) {
@@ -619,15 +641,21 @@ public class Sistema {
 				if(listaDeProcessos[i] == null) {
 					listaDeProcessos[i] = pcb;
 					contProcessos++;
+
+					return true;
 				}
 			}
 
-			return true;		
+			return false;
 		}
 
 		private PCB getProcesso(int id) {
 			for(PCB pcb : listaDeProcessos) {
-				if(pcb.id == id) {return pcb;}
+				if(pcb == null) {System.out.println("null");}
+				else {
+					System.out.println("PCB " +  pcb.id);
+					if(pcb.id == id) {return pcb;}
+				}
 			}
 
 			return null;
@@ -661,7 +689,40 @@ public class Sistema {
 
 	public void run() {
 
-		so.utils.loadAndExec(progs.retrieveProgram("fatorialV2"));
+		//so.utils.loadAndExec(progs.retrieveProgram("fatorialV2"));
+
+		//====================COMANDOS PARA TESTAR ALOCACAO================
+		Word[] p = progs.retrieveProgram("fatorialV2");
+		Word[] q = progs.retrieveProgram("fatorial");
+		Word[] r = progs.retrieveProgram("fibonacci10v2");
+
+		so.utils.loadProgram(p); // carga do programa na memoria
+		System.out.println("---------------------------------- programa 'p' carregado ");
+		so.utils.loadProgram(q);
+		System.out.println("---------------------------------- programa 'q' carregado ");
+		
+		System.out.println("---------------------------------- rodando programa 'p'");
+		hw.cpu.setContext(0);
+		hw.cpu.run(1); // cpu roda programa ate parar
+		so.gerenteProg.desalocaProcesso(1);
+
+		so.utils.loadProgram(r);
+		System.out.println("---------------------------------- programa  'r' carregado ");
+		so.utils.dump(0, 60); // dump da memoria com resultado
+
+		System.out.println("---------------------------------- rodando programa 'q'");
+		hw.cpu.setContext(0);
+		hw.cpu.run(2);
+
+		System.out.println("---------------------------------- rodando programa 'r'");
+		hw.cpu.setContext(0);
+		hw.cpu.run(3);
+
+		so.utils.dump(0, 60);
+		for(int i = 0; i < 4; i++) {
+			System.out.println(i + ": " + so.posOcupadas[i]);
+		}
+		//=================================================================
 
 		// so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
 		// fibonacci10,
@@ -721,8 +782,7 @@ public class Sistema {
 								new Word(Opcode.LDI, 7, -1, 8), // 3 r7 tem posicao 8 para fim do programa
 								new Word(Opcode.JMPIE, 7, 0, 0), // 4 se r0=0 pula para r7(=8)
 								new Word(Opcode.MULT, 1, 0, -1), // 5 r1 = r1 * r0 (r1 acumula o produto por cada termo)
-								new Word(Opcode.SUB, 0, 6, -1), // 6 r0 = r0 - r6 (r6=1) decrementa r0 para proximo
-																// termo
+								new Word(Opcode.SUB, 0, 6, -1), // 6 r0 = r0 - r6 (r6=1) decrementa r0 para proximo termo
 								new Word(Opcode.JMP, -1, -1, 4), // 7 vai p posicao 4
 								new Word(Opcode.STD, 1, -1, 10), // 8 coloca valor de r1 na posição 10
 								new Word(Opcode.STOP, -1, -1, -1), // 9 stop
@@ -909,15 +969,15 @@ public class Sistema {
 								// se for negativo armazena -1 na saída; se for positivo responde o fatorial do
 								// número na saída
 								new Word(Opcode.LDI, 0, -1, 7), // numero para colocar na memoria
-								new Word(Opcode.STD, 0, -1, 50),
-								new Word(Opcode.LDD, 0, -1, 50),
+								new Word(Opcode.STD, 0, -1, 15),
+								new Word(Opcode.LDD, 0, -1, 15),
 								new Word(Opcode.LDI, 1, -1, -1),
 								new Word(Opcode.LDI, 2, -1, 13), // SALVAR POS STOP
 								new Word(Opcode.JMPIL, 2, 0, -1), // caso negativo pula pro STD
 								new Word(Opcode.LDI, 1, -1, 1),
 								new Word(Opcode.LDI, 6, -1, 1),
 								new Word(Opcode.LDI, 7, -1, 13),
-								new Word(Opcode.JMPIE, 7, 0, 0), // POS 9 pula pra STD (Stop-1)
+								new Word(Opcode.JMPIE, 7, 0, -1), // POS 9 pula pra STD (Stop-1)
 								new Word(Opcode.MULT, 1, 0, -1),
 								new Word(Opcode.SUB, 0, 6, -1),
 								new Word(Opcode.JMP, -1, -1, 9), // pula para o JMPIE
