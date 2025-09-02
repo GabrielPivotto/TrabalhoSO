@@ -121,9 +121,9 @@ public class Sistema {
 
 
                                        // verificação de enderecamento 
-		private boolean legal(int e) { // todo acesso a memoria tem que ser verificado se é válido - 
+		private boolean legal(int e, int[] tabPag) { // todo acesso a memoria tem que ser verificado se é válido - 
 			                           // aqui no caso se o endereco é um endereco valido em toda memoria
-			if (e >= 0 && e < m.length) {
+			if (e >= 0 && e < tabPag.length*so.tamFrame) { //se "e" nao for maior que a qtd total de linhas do programa
 				return true;
 			} else {
 				irpt = Interrupts.intEnderecoInvalido;    // se nao for liga interrupcao no meio da exec da instrucao
@@ -166,7 +166,7 @@ public class Sistema {
 				System.out.println("PC = " + pc);
 				System.out.println("Endereco traduzido = " + (tabPag[pagAtual]*tFrame + linhaAtual));
 				
-				if (legal(tabPag[pagAtual]*tFrame + linhaAtual)) { // pc valido
+				if (legal(tabPag[pagAtual]*tFrame + linhaAtual, tabPag)) { // pc valido
 					ir = m[tabPag[pagAtual]*tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
 					             // resto é dump de debug
 					
@@ -194,7 +194,7 @@ public class Sistema {
 							pc++;
 							break;
 						case LDD: // Rd <- [A]
-							if (legal(ir.p)) {
+							if (legal(ir.p, tabPag)) {
 								int pag = ir.p/tFrame;  
 								int deslocamento = ir.p%tFrame;
 
@@ -203,7 +203,7 @@ public class Sistema {
 							}
 							break;
 						case LDX: // RD <- [RS] // NOVA
-							if (legal(reg[ir.rb])) {
+							if (legal(reg[ir.rb], tabPag)) {
 								int pag = reg[ir.rb]/tFrame;  
 								int deslocamento = reg[ir.rb]%tFrame;
 
@@ -212,7 +212,7 @@ public class Sistema {
 							}
 							break;
 						case STD: // [A] ← Rs
-							if (legal(ir.p)) {
+							if (legal(ir.p, tabPag)) {
 								int pag = ir.p/tFrame;  
 								int deslocamento = ir.p%tFrame;
 
@@ -226,7 +226,7 @@ public class Sistema {
 								}
 							break;
 						case STX: // [Rd] ←Rs
-							if (legal(reg[ir.ra])) {
+							if (legal(reg[ir.ra], tabPag)) {
 								m[reg[ir.ra]].opc = Opcode.DATA;
 								m[reg[ir.ra]].p = reg[ir.rb];
 								pc++;
@@ -314,7 +314,7 @@ public class Sistema {
 							}
 							break;
 						case JMPIGM: // If RC > 0 then PC <- [A] else PC++
-						    if (legal(ir.p)){
+						    if (legal(ir.p, tabPag)){
 							    if (reg[ir.rb] > 0) {
 								   pc = m[ir.p].p;
 							    } else {
@@ -969,21 +969,55 @@ public class Sistema {
 								// se for negativo armazena -1 na saída; se for positivo responde o fatorial do
 								// número na saída
 								new Word(Opcode.LDI, 0, -1, 7), // numero para colocar na memoria
-								new Word(Opcode.STD, 0, -1, 15),
-								new Word(Opcode.LDD, 0, -1, 15),
+								new Word(Opcode.STD, 0, -1, 50),
+								new Word(Opcode.LDD, 0, -1, 50),
 								new Word(Opcode.LDI, 1, -1, -1),
 								new Word(Opcode.LDI, 2, -1, 13), // SALVAR POS STOP
 								new Word(Opcode.JMPIL, 2, 0, -1), // caso negativo pula pro STD
 								new Word(Opcode.LDI, 1, -1, 1),
 								new Word(Opcode.LDI, 6, -1, 1),
 								new Word(Opcode.LDI, 7, -1, 13),
-								new Word(Opcode.JMPIE, 7, 0, -1), // POS 9 pula pra STD (Stop-1)
+								new Word(Opcode.JMPIE, 7, 0, 0), // POS 9 pula pra STD (Stop-1)
 								new Word(Opcode.MULT, 1, 0, -1),
 								new Word(Opcode.SUB, 0, 6, -1),
 								new Word(Opcode.JMP, -1, -1, 9), // pula para o JMPIE
 								new Word(Opcode.STD, 1, -1, 15),
 								new Word(Opcode.STOP, -1, -1, -1), // POS 14
-								new Word(Opcode.DATA, -1, -1, -1) // POS 15
+								new Word(Opcode.DATA, -1, -1, -1), // POS 15
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1)
 						}),
 				new Program("PC",
 						new Word[] {
@@ -1018,10 +1052,8 @@ public class Sistema {
 								new Word(Opcode.LDI, 6, -1, 0), // r6 = r7 - 1 POS 22
 								new Word(Opcode.ADD, 6, 7, -1),
 								new Word(Opcode.SUBI, 6, -1, 1), // ate aqui
-								new Word(Opcode.JMPIEM, -1, 6, 97), // CHAVE 3 para pular quando r7 for 1 e r6 0 para
-																	// interomper o loop de vez do programa
-								new Word(Opcode.LDX, 0, 5, -1), // r0 e ra pegando valores das posições da memoria POS
-																// 26
+								new Word(Opcode.JMPIEM, -1, 6, 97), // CHAVE 3 para pular quando r7 for 1 e r6 0 para interomper o loop de vez do programa
+								new Word(Opcode.LDX, 0, 5, -1), // r0 e ra pegando valores das posições da memoria POS 26
 								new Word(Opcode.LDX, 1, 4, -1),
 								new Word(Opcode.LDI, 2, -1, 0),
 								new Word(Opcode.ADD, 2, 0, -1),
@@ -1041,6 +1073,50 @@ public class Sistema {
 								new Word(Opcode.ADDI, 4, -1, 1), // ate aqui
 								new Word(Opcode.JMPIGM, -1, 7, 98), // LOOP chave 2
 								new Word(Opcode.STOP, -1, -1, -1), // POS 45
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
+								new Word(Opcode.DATA, -1, -1, -1),
 								new Word(Opcode.DATA, -1, -1, -1),
 								new Word(Opcode.DATA, -1, -1, -1),
 								new Word(Opcode.DATA, -1, -1, -1),
