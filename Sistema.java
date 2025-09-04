@@ -281,48 +281,50 @@ public class Sistema {
 
                         // Instrucoes JUMP
                         case JMP: // PC <- k
-                            pc = ir.p;
+							if(legal(ir.p, tabPag)) {pc = ir.p;}
                             break;
                         case JMPIM: // PC <- [A]
-                            pc = m[ir.p].p;
+							if(legal(m[ir.p].p, tabPag)){
+                            	pc = m[ir.p].p;
+							}	
                             break;
                         case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
-                            if (reg[ir.rb] > 0) {
+                            if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIGK: // If RC > 0 then PC <- k else PC++
-                            if (reg[ir.rb] > 0) {
+                            if (legal(ir.p, tabPag) && reg[ir.rb] > 0) {
                                 pc = ir.p;
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPILK: // If RC < 0 then PC <- k else PC++
-                            if (reg[ir.rb] < 0) {
+                            if (legal(ir.p, tabPag) && reg[ir.rb] < 0) {
                                 pc = ir.p;
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIEK: // If RC = 0 then PC <- k else PC++
-                            if (reg[ir.rb] == 0) {
+                            if (legal(ir.p, tabPag) &&reg[ir.rb] == 0) {
                                 pc = ir.p;
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIL: // if Rc < 0 then PC <- Rs Else PC <- PC +1
-                            if (reg[ir.rb] < 0) {
+                            if (legal(ir.ra, tabPag) && reg[ir.rb] < 0) {
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIE: // If Rc = 0 Then PC <- Rs Else PC <- PC +1
-                            if (reg[ir.rb] == 0) {
+                            if (legal(ir.ra, tabPag) && reg[ir.rb] == 0) {
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -338,21 +340,21 @@ public class Sistema {
                             }
                             break;
                         case JMPILM: // If RC < 0 then PC <- k else PC++
-                            if (reg[ir.rb] < 0) {
+                            if (legal(m[ir.p].p, tabPag) && reg[ir.rb] < 0) {
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIEM: // If RC = 0 then PC <- k else PC++
-                            if (reg[ir.rb] == 0) {
+                            if (legal(m[ir.p].p, tabPag) && reg[ir.rb] == 0) {
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
                             }
                             break;
                         case JMPIGT: // If RS>RC then PC <- k else PC++
-                            if (reg[ir.ra] > reg[ir.rb]) {
+                            if (legal(ir.p, tabPag) && reg[ir.ra] > reg[ir.rb]) {
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -561,7 +563,6 @@ public class Sistema {
                 if (pcb!=null) ready.add(pcb.id);
             }
 
-
             int currID = -1;
             while(!ready.isEmpty()){
                 System.out.println(ready.toString());
@@ -569,13 +570,11 @@ public class Sistema {
                 if (!hw.cpu.run(currID, 2)){
                     ready.add(currID);
                 }
+				else {
+					so.gerenteProg.desalocaProcesso(currID);
+				}
             }
-
-            
         }
-
-
-
     }
 
     public class PCB { //Process Control Block
@@ -667,8 +666,8 @@ public class Sistema {
         }
 
         boolean desalocaProcesso(int id) {
-            for (PCB pcb : so.listaDeProcessos) { // procura por todos os pcb
-                if (pcb.id == id) { 							// se achou...
+            for (PCB pcb : so.listaDeProcessos) { 			// procura por todos os pcb
+				if(pcb != null && pcb.id == id) {			// se achou...
                     so.gerenteMem.desaloca(pcb.tabelaPag); 	// ...tira da memoria...
                     so.removeListProcesso(id); 				// ...e tira da lista de processos do SO
 
@@ -739,11 +738,11 @@ public class Sistema {
         }
 
         private PCB getProcesso(int id) {
-            for (PCB pcb : listaDeProcessos) {
+            for(PCB pcb : listaDeProcessos) {
                 if(pcb != null) {
                     //System.out.println("PCB " + pcb.id);
-                    if (pcb.id == id) {
-                        return pcb;
+                    if(pcb.id == id) {
+                    	return pcb;
                     }
                 }
             }
@@ -752,19 +751,16 @@ public class Sistema {
         }
 
         private boolean removeListProcesso(int id) {
-            for (int i = 0; i < listaDeProcessos.length - 1; i++) {
-                if (listaDeProcessos[i].id == id) {
-                    listaDeProcessos[i] = null;
+            for(int i = 0; i < listaDeProcessos.length - 1; i++) {
+                if(listaDeProcessos[i] != null && listaDeProcessos[i].id == id) {
+                	listaDeProcessos[i] = null;
                     contProcessos--;
                     return true;
                 }
             }
 
             return false;
-        }
-
-
-        
+        } 
     }
     // -------------------------------------------------------------------------------------------------------
     // ------------------- S I S T E M A
@@ -785,8 +781,7 @@ public class Sistema {
         boolean exit = false;
         String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + //
                                 "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
-                                "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3\n" +
-                                "…)\n" +
+                                "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
                                 "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
                                 "ps - lista todos processos existentes\n" +
                                 "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
@@ -800,137 +795,120 @@ public class Sistema {
         System.out.println(help);
         Scanner in = new Scanner(System.in);
         while (!exit){
-            String[] input = {""};
-            if(in.hasNextLine()) input = in.nextLine().split(" ");
-            switch(input[0]){
+        	String[] input = {""};
+            
+			if(in.hasNextLine()) input = in.nextLine().split(" ");
+            
+			switch(input[0]){
                 case "new":
-                if (input.length == 1) {
-                    System.out.println("Programa não declarado");
-                    break;
-                }
-                System.out.println(input[1]);
-                int program = so.utils.loadProgram(progs.retrieveProgram(input[1]));
-                if (program == -1) System.out.println("Programa nao encontrado.");
-                else System.out.println("Programa carregado com ID "+ program);
-                break;
+                	if(input.length == 1) {
+                		System.out.println("Programa não declarado");
+
+                	    break;
+                	}
+
+                	//System.out.println(input[1]);
+                	int program = so.utils.loadProgram(progs.retrieveProgram(input[1]));
+				
+					if(program == -1) {System.out.println("Programa nao encontrado.");}
+                	else {System.out.println("Programa carregado com ID "+ program);}
+
+                	break;
 
                 case "rm":
-                    if (input.length == 1) {
+                    if(input.length == 1) {
                         System.out.println("Processo não declarado");
+
                         break;
                     }
+
                     boolean found = so.gerenteProg.desalocaProcesso(Integer.parseInt(input[1]));
-                    if (!found) System.out.println("Processo nao encontrado.");
-                    else System.out.println("Processo descarregado.");
+                    
+					if(!found) {System.out.println("Processo nao encontrado.");}
+                    else {System.out.println("Processo descarregado.");}
+
                     break;
 
                 case "ps":
                     PCB[] processos = so.listaDeProcessos;
-                    for (PCB pcb : processos) {
-                        if(pcb != null) System.out.println(pcb.id);
-                    }
-                    break;
+                    for(PCB pcb : processos) {if(pcb != null) {System.out.println(pcb.id);}}
+                    
+					break;
 
                 case "dump":
                     if (input.length == 1) {
                         System.out.println("Processo não declarado.");
                         break;
                     }
+
                     PCB process = so.getProcesso(Integer.parseInt(input[1]));
+
                     System.out.println(process);
                     System.out.println("Memória do processo:");
-                    for (int pag : process.tabelaPag) {
-                        so.utils.dump(so.tamFrame*pag, (so.tamFrame*(pag+1))-1);
-                    }
-                    break;
+
+                    for(int pag : process.tabelaPag) {so.utils.dump(so.tamFrame*pag, (so.tamFrame*(pag+1))-1);}
+                    
+					break;
                 
                 case "dumpM":
                     if(input.length<3){
                         System.out.println("Endereços não declarados.");
+
                         break;
                     }
+
                     so.utils.dump(Integer.parseInt(input[1]),Integer.parseInt(input[2]));
-                    break;
+                    
+					break;
 
                 case "exec":
-                    if (input.length == 1) {
+                    if(input.length == 1) {
                         System.out.println("Processo não declarado.");
+						
                         break;
                     }
+
                     int procID = Integer.parseInt(input[1]);
-                    if(hw.cpu.run(procID, 0)){
-                    System.out.println("Processo " +procID + " concluído.");}
-                    else{System.out.println("não rodou :(");}
+
+                    if(hw.cpu.run(procID, 0)){System.out.println("Processo " +procID + " concluído.");}
+                    else {System.out.println("não rodou :(");}
+
                     break;
 
                 case "traceOn":
                     hw.cpu.setDebug(true);
                     System.out.println("Trace ativado");
+
                     break;
 
                 case "traceOff":
                     hw.cpu.setDebug(false);
                     System.out.println("Trace desligado");
+
                     break;
 
                 case "help":
                     System.out.println(help);
+
                     break;
 
                 case "exit":
                     exit = true;
                     in.close();
+					
                     break;
 
                 case "execAll":
                     so.utils.execAll();
+
                     break;
 
                 default:
                     System.out.println("Comando inválido, digite 'help' para listar os comandos.");
-
-
-                }
             }
-
         }
 
-
-
-        //so.utils.loadAndExec(progs.retrieveProgram("fatorialV2"));
-        //====================COMANDOS PARA TESTAR ALOCACAO================
-        /*Word[] p = progs.retrieveProgram("fatorialV2");
-        Word[] q = progs.retrieveProgram("fatorial");
-        Word[] r = progs.retrieveProgram("fibonacci10v2");
-
-        so.utils.loadProgram(p); // carga do programa na memoria
-        System.out.println("---------------------------------- programa 'p' carregado ");
-        so.utils.loadProgram(q);
-        System.out.println("---------------------------------- programa 'q' carregado ");
-
-        System.out.println("---------------------------------- rodando programa 'p'");
-        //hw.cpu.setContext(0);
-        hw.cpu.run(1); // cpu roda programa ate parar
-        so.gerenteProg.desalocaProcesso(1);
-
-        so.utils.loadProgram(r);
-        System.out.println("---------------------------------- programa  'r' carregado ");
-        so.utils.dump(0, 60); // dump da memoria com resultado
-
-        System.out.println("---------------------------------- rodando programa 'q'");
-        //hw.cpu.setContext(0);
-        hw.cpu.run(2);
-
-        System.out.println("---------------------------------- rodando programa 'r'");
-        //hw.cpu.setContext(0);
-        hw.cpu.run(3);
-
-        so.utils.dump(0, 60);
-        for (int i = 0; i < 4; i++) {
-            System.out.println(i + ": " + so.posOcupadas[i]);
-        }*/
-        //=================================================================
-
+	}
         // so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
         // fibonacci10,
         // fibonacci10v2,
@@ -1038,6 +1016,7 @@ public class Sistema {
             new Program("fibonacci10",
             new Word[]{ // mesmo que prog exemplo, so que usa r0 no lugar de r8
                 new Word(Opcode.LDI, 1, -1, 0),
+				new Word(Opcode.JMP, -1, -1, 100), //REMOVER
                 new Word(Opcode.STD, 1, -1, 20),
                 new Word(Opcode.LDI, 2, -1, 1),
                 new Word(Opcode.STD, 2, -1, 21),
