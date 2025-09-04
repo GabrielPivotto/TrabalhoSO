@@ -20,6 +20,11 @@
 //    Veja o main.  Ele instancia o Sistema com os elementos mencionados acima.
 //           em seguida solicita a execução de algum programa com  loadAndExec
 
+import java.util.Scanner;
+import java.util.Queue;
+import java.util.List;
+import java.util.LinkedList;
+
 public class Sistema {
 
     // -------------------------------------------------------------------------------------------------------
@@ -117,9 +122,12 @@ public class Sistema {
             u = _u;                     // aponta para rotinas utilitárias - fazer dump da memória na tela
         }
 
+        public void setDebug(boolean value) {debug = value;}
+
         // verificação de enderecamento 
         private boolean legal(int e, int[] tabPag) { // todo acesso a memoria tem que ser verificado se é válido - 
             // aqui no caso se o endereco é um endereco valido em toda memoria
+            System.out.println(e);
             if (e >= 0 && e < tabPag.length * so.tamFrame) { //se "e" nao for maior que a qtd total de linhas do programa
                 return true;
             } else {
@@ -146,9 +154,10 @@ public class Sistema {
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
         }*/
 
-        public void run(int id) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
+        public boolean run(int id, int instMax) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
             // esta devidamente setado
             PCB pcb = so.getProcesso(id);
+            System.out.println(pcb);
             pc = pcb.pcState;                                     // pc cfe endereco logico
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
@@ -160,9 +169,7 @@ public class Sistema {
             // (aponta pra pos na lista de processos do S.O.)
 
             cpuStop = false;
-			boolean storeState = false;
 
-			int instMax = 5;
 			int instCount = 0;
             while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
                 // --------------------------------------------------------------------------------------------------
@@ -175,12 +182,12 @@ public class Sistema {
                 System.out.println("PC = " + pc);
                 System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
 
-                if (legal(tabPag[pagAtual] * tFrame + linhaAtual, tabPag)) { // pc valido
+                if (legal(pc, tabPag)) { // pc valido
                     ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
 
                     if (debug) {
-                        System.out.print("                                              regs: ");
+                        System.out.print(" regs: ");
                         for (int i = 0; i < 10; i++) {
                             System.out.print(" r[" + i + "]:" + reg[i]);
                         }
@@ -188,7 +195,7 @@ public class Sistema {
                         System.out.println();
                     }
                     if (debug) {
-                        System.out.print("                      pc: " + pc + "       exec: ");
+                        System.out.print("pc: " + pc + "       exec: ");
                         u.dump(ir);
                     }
 
@@ -366,7 +373,8 @@ public class Sistema {
                         case STOP: // por enquanto, para execucao
                             sysCall.stop();
                             cpuStop = true;
-                            break;
+                            //DESALOCAR AQUI
+                            return true;
 
                         // Inexistente
                         default:
@@ -381,17 +389,20 @@ public class Sistema {
                     cpuStop = true;                   // nesta versao, para a CPU
                 }
 				instCount++;
+                System.out.println(instCount + "---" + instMax);
 				if(instCount==instMax) {
 					cpuStop = true;
-					storeState = true;
+                    break;
 				}
             } // FIM DO CICLO DE UMA INSTRUÇÃO
-            if (storeState) {
-				pcb.pcState = pc;
-				pcb.regState = reg;
-            }
+			pcb.pcState = pc;
+			pcb.regState = reg;
+            System.out.println(pcb);
             //so.gerenteProg.desalocaProcesso(so.gerenteProg.novoIdProcesso); //inserido aqui por finalidade de teste da funcao REMOVER DEPOIS
+            return false;
         }
+
+
     }
     // ------------------ C P U - fim
     // -----------------------------------------------------------------------
@@ -538,10 +549,33 @@ public class Sistema {
             dump(0, p.length); // dump da memoria nestas posicoes
             //hw.cpu.setContext(id); // seta pc para endereço 0 - ponto de entrada dos programas <<<< ANOTACAO: mudar o context aqui faz diferenca se pc sempre eh traduzido para mem real?
             System.out.println("---------------------------------- inicia execucao ");
-            hw.cpu.run(so.gerenteProg.novoIdProcesso); // cpu roda programa ate parar
+            hw.cpu.run(so.gerenteProg.novoIdProcesso, 0); // cpu roda programa ate parar
             System.out.println("---------------------------------- memoria após execucao ");
             dump(0, p.length); // dump da memoria com resultado
         }
+
+
+        private void execAll(){
+            Queue<Integer> ready = new LinkedList<Integer>();
+            for (PCB pcb : so.listaDeProcessos) {
+                if (pcb!=null) ready.add(pcb.id);
+            }
+
+
+            int currID = -1;
+            while(!ready.isEmpty()){
+                System.out.println(ready.toString());
+                currID = ready.remove();
+                if (!hw.cpu.run(currID, 2)){
+                    ready.add(currID);
+                }
+            }
+
+            
+        }
+
+
+
     }
 
     public class PCB { //Process Control Block
@@ -557,6 +591,21 @@ public class Sistema {
             tabelaPag = _tabelaPag;
             regState = new int[10];
             pcState = 0;
+        }
+
+        public String toString(){
+            String s = "ID: " + id +
+            "\nEstado dos registradores: ";
+            for (int n : regState) {
+                s = s + n+ ", ";
+            }
+            s = s + "\nEstado do PC: " + pcState +
+            "\nPáginas Alocadas: ";
+            for (int i : tabelaPag) {
+                s = s + i + ", ";
+            }
+            return s;
+
         }
 
     }
@@ -600,6 +649,7 @@ public class Sistema {
         public int novoIdProcesso = 0;
 
         boolean criaProcesso(Word[] programa) {
+            if(programa == null) return false;
             novoIdProcesso++;
             System.out.println("GP id = " + novoIdProcesso);
             int qtdPag = (programa.length + so.tamFrame - 1) / so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
@@ -690,10 +740,8 @@ public class Sistema {
 
         private PCB getProcesso(int id) {
             for (PCB pcb : listaDeProcessos) {
-                if (pcb == null) {
-                    System.out.println("null");
-                } else {
-                    System.out.println("PCB " + pcb.id);
+                if(pcb != null) {
+                    //System.out.println("PCB " + pcb.id);
                     if (pcb.id == id) {
                         return pcb;
                     }
@@ -714,6 +762,9 @@ public class Sistema {
 
             return false;
         }
+
+
+        
     }
     // -------------------------------------------------------------------------------------------------------
     // ------------------- S I S T E M A
@@ -731,10 +782,124 @@ public class Sistema {
     }
 
     public void run() {
+        boolean exit = false;
+        String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + //
+                                "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
+                                "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3\n" +
+                                "…)\n" +
+                                "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
+                                "ps - lista todos processos existentes\n" +
+                                "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
+                                "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
+                                "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
+                                "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
+                                "traceOff - desliga o modo acima\n" +
+                                "execAll - executa todos os processos prontos\n" +
+                                "help - lista as instruções\n" +
+                                "exit - sai do sistema";
+        System.out.println(help);
+        Scanner in = new Scanner(System.in);
+        while (!exit){
+            String[] input = {""};
+            if(in.hasNextLine()) input = in.nextLine().split(" ");
+            switch(input[0]){
+                case "new":
+                if (input.length == 1) {
+                    System.out.println("Programa não declarado");
+                    break;
+                }
+                System.out.println(input[1]);
+                int program = so.utils.loadProgram(progs.retrieveProgram(input[1]));
+                if (program == -1) System.out.println("Programa nao encontrado.");
+                else System.out.println("Programa carregado com ID "+ program);
+                break;
+
+                case "rm":
+                    if (input.length == 1) {
+                        System.out.println("Processo não declarado");
+                        break;
+                    }
+                    boolean found = so.gerenteProg.desalocaProcesso(Integer.parseInt(input[1]));
+                    if (!found) System.out.println("Processo nao encontrado.");
+                    else System.out.println("Processo descarregado.");
+                    break;
+
+                case "ps":
+                    PCB[] processos = so.listaDeProcessos;
+                    for (PCB pcb : processos) {
+                        if(pcb != null) System.out.println(pcb.id);
+                    }
+                    break;
+
+                case "dump":
+                    if (input.length == 1) {
+                        System.out.println("Processo não declarado.");
+                        break;
+                    }
+                    PCB process = so.getProcesso(Integer.parseInt(input[1]));
+                    System.out.println(process);
+                    System.out.println("Memória do processo:");
+                    for (int pag : process.tabelaPag) {
+                        so.utils.dump(so.tamFrame*pag, (so.tamFrame*(pag+1))-1);
+                    }
+                    break;
+                
+                case "dumpM":
+                    if(input.length<3){
+                        System.out.println("Endereços não declarados.");
+                        break;
+                    }
+                    so.utils.dump(Integer.parseInt(input[1]),Integer.parseInt(input[2]));
+                    break;
+
+                case "exec":
+                    if (input.length == 1) {
+                        System.out.println("Processo não declarado.");
+                        break;
+                    }
+                    int procID = Integer.parseInt(input[1]);
+                    if(hw.cpu.run(procID, 0)){
+                    System.out.println("Processo " +procID + " concluído.");}
+                    else{System.out.println("não rodou :(");}
+                    break;
+
+                case "traceOn":
+                    hw.cpu.setDebug(true);
+                    System.out.println("Trace ativado");
+                    break;
+
+                case "traceOff":
+                    hw.cpu.setDebug(false);
+                    System.out.println("Trace desligado");
+                    break;
+
+                case "help":
+                    System.out.println(help);
+                    break;
+
+                case "exit":
+                    exit = true;
+                    in.close();
+                    break;
+
+                case "execAll":
+                    so.utils.execAll();
+                    break;
+
+                default:
+                    System.out.println("Comando inválido, digite 'help' para listar os comandos.");
+
+
+                }
+            }
+
+        }
+
+
 
         //so.utils.loadAndExec(progs.retrieveProgram("fatorialV2"));
         //====================COMANDOS PARA TESTAR ALOCACAO================
-        Word[] p = progs.retrieveProgram("fatorialV2");
+        /*Word[] p = progs.retrieveProgram("fatorialV2");
         Word[] q = progs.retrieveProgram("fatorial");
         Word[] r = progs.retrieveProgram("fibonacci10v2");
 
@@ -763,7 +928,7 @@ public class Sistema {
         so.utils.dump(0, 60);
         for (int i = 0; i < 4; i++) {
             System.out.println(i + ": " + so.posOcupadas[i]);
-        }
+        }*/
         //=================================================================
 
         // so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
@@ -774,7 +939,6 @@ public class Sistema {
         // fibonacciREAD, // entrada
         // PB
         // PC, // bubble sort
-    }
     // ------------------- S I S T E M A - fim
     // --------------------------------------------------------------
     // -------------------------------------------------------------------------------------------------------
@@ -807,7 +971,7 @@ public class Sistema {
 
         public Word[] retrieveProgram(String pname) {
             for (Program p : progs) {
-                if (p != null & p.name == pname) {
+                if (p != null & p.name.equals(pname)) {
                     return p.image;
                 }
             }
