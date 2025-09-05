@@ -563,6 +563,14 @@ public class Sistema {
                 if (pcb!=null) ready.add(pcb.id);
             }
 
+            //======Comando para deixar a concorrencia mais aparente======//
+            try {
+                Thread.sleep(10000); 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            //============================================================//
+
             int currID = -1;
             while(!ready.isEmpty()){
                 System.out.println(ready.toString());
@@ -692,6 +700,8 @@ public class Sistema {
         public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
         public int contProcessos; 		// conta a qtd de processos
         public boolean[] posOcupadas; 	// guarda os frames disponiveis (false) e ocupados (true)
+        public ThreadMenu tMenu; 
+        public ThreadExecAll tExecAll;
 
         public SO(HW hw, int _tamFrame) {
             ih = new InterruptHandling(hw); // rotinas de tratamento de int
@@ -708,6 +718,8 @@ public class Sistema {
             posOcupadas = new boolean[qtdFramesDisp];
             ptrProcessRunning = -1;
 
+            tMenu = new ThreadMenu();
+            tExecAll = new ThreadExecAll();
         }
 
         private void atualizaPtrProcess(int id) {
@@ -778,136 +790,16 @@ public class Sistema {
     }
 
     public void run() {
-        boolean exit = false;
-        String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + //
-                                "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
-                                "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
-                                "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
-                                "ps - lista todos processos existentes\n" +
-                                "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
-                                "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
-                                "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
-                                "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
-                                "traceOff - desliga o modo acima\n" +
-                                "execAll - executa todos os processos prontos\n" +
-                                "help - lista as instruções\n" +
-                                "exit - sai do sistema";
-        System.out.println(help);
-        Scanner in = new Scanner(System.in);
-        while (!exit){
-        	String[] input = {""};
-            
-			if(in.hasNextLine()) input = in.nextLine().split(" ");
-            
-			switch(input[0]){
-                case "new":
-                	if(input.length == 1) {
-                		System.out.println("Programa não declarado");
+        so.tMenu.start();
 
-                	    break;
-                	}
-
-                	//System.out.println(input[1]);
-                	int program = so.utils.loadProgram(progs.retrieveProgram(input[1]));
-				
-					if(program == -1) {System.out.println("Programa nao encontrado.");}
-                	else {System.out.println("Programa carregado com ID "+ program);}
-
-                	break;
-
-                case "rm":
-                    if(input.length == 1) {
-                        System.out.println("Processo não declarado");
-
-                        break;
-                    }
-
-                    boolean found = so.gerenteProg.desalocaProcesso(Integer.parseInt(input[1]));
-                    
-					if(!found) {System.out.println("Processo nao encontrado.");}
-                    else {System.out.println("Processo descarregado.");}
-
-                    break;
-
-                case "ps":
-                    PCB[] processos = so.listaDeProcessos;
-                    for(PCB pcb : processos) {if(pcb != null) {System.out.println(pcb.id);}}
-                    
-					break;
-
-                case "dump":
-                    if (input.length == 1) {
-                        System.out.println("Processo não declarado.");
-                        break;
-                    }
-
-                    PCB process = so.getProcesso(Integer.parseInt(input[1]));
-
-                    System.out.println(process);
-                    System.out.println("Memória do processo:");
-
-                    for(int pag : process.tabelaPag) {so.utils.dump(so.tamFrame*pag, (so.tamFrame*(pag+1))-1);}
-                    
-					break;
-                
-                case "dumpM":
-                    if(input.length<3){
-                        System.out.println("Endereços não declarados.");
-
-                        break;
-                    }
-
-                    so.utils.dump(Integer.parseInt(input[1]),Integer.parseInt(input[2]));
-                    
-					break;
-
-                case "exec":
-                    if(input.length == 1) {
-                        System.out.println("Processo não declarado.");
-						
-                        break;
-                    }
-
-                    int procID = Integer.parseInt(input[1]);
-
-                    if(hw.cpu.run(procID, 0)){System.out.println("Processo " +procID + " concluído.");}
-                    else {System.out.println("não rodou :(");}
-
-                    break;
-
-                case "traceOn":
-                    hw.cpu.setDebug(true);
-                    System.out.println("Trace ativado");
-
-                    break;
-
-                case "traceOff":
-                    hw.cpu.setDebug(false);
-                    System.out.println("Trace desligado");
-
-                    break;
-
-                case "help":
-                    System.out.println(help);
-
-                    break;
-
-                case "exit":
-                    exit = true;
-                    in.close();
-					
-                    break;
-
-                case "execAll":
-                    so.utils.execAll();
-
-                    break;
-
-                default:
-                    System.out.println("Comando inválido, digite 'help' para listar os comandos.");
-            }
+        try { // Espera cada thread terminar
+                so.tMenu.join();
+                so.tExecAll.join();  
+        } catch (InterruptedException e) {
+                // Se a thread for interrompida enquanto espera, trata a exceção
+                System.err.println("A thread principal foi interrompida enquanto esperava.");
+                Thread.currentThread().interrupt();  // Restaura o estado de interrupção
         }
-
 	}
         // so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
         // fibonacci10,
@@ -926,6 +818,173 @@ public class Sistema {
     public static void main(String args[]) {
         Sistema s = new Sistema(1024, 8);
         s.run();
+    }
+
+    public class ThreadExecAll extends Thread {
+        
+        @Override
+        public void run() {
+            so.utils.execAll();
+        }
+    }
+
+    public class ThreadMenu extends Thread {
+        
+        @Override
+        public void run() {
+            boolean exit = false;
+            boolean execAll = false;
+
+            String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + //
+                                    "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
+                                    "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
+                                    "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
+                                    "ps - lista todos processos existentes\n" +
+                                    "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
+                                    "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
+                                    "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
+                                    "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
+                                    "traceOff - desliga o modo acima\n" +
+                                    "execAll - executa todos os processos prontos\n" +
+                                    "help - lista as instruções\n" +
+                                    "exit - sai do sistema";
+            System.out.println(help);
+            Scanner in = new Scanner(System.in);
+
+            while (!exit){
+            	String[] input = {""};
+
+		    	if(in.hasNextLine()) input = in.nextLine().split(" ");
+
+		    	switch(input[0]){
+                    case "new":
+                    	if(input.length == 1) {
+                    		System.out.println("Programa não declarado");
+
+                    	    break;
+                    	}
+
+                    	int program = so.utils.loadProgram(progs.retrieveProgram(input[1]));
+                    
+		    			if(program == -1) {System.out.println("Programa nao encontrado.");}
+                    	else {System.out.println("Programa carregado com ID "+ program);}
+
+                    	break;
+
+                    case "rm":
+                        if(input.length == 1) {
+                            System.out.println("Processo não declarado");
+
+                            break;
+                        }
+
+                        boolean found = so.gerenteProg.desalocaProcesso(Integer.parseInt(input[1]));
+
+		    			if(!found) {System.out.println("Processo nao encontrado.");}
+                        else {System.out.println("Processo descarregado.");}
+
+                        break;
+
+                    case "ps":
+                        PCB[] processos = so.listaDeProcessos;
+                        for(PCB pcb : processos) {if(pcb != null) {System.out.println(pcb.id);}}
+
+		    			break;
+
+                    case "dump":
+                        if (input.length == 1) {
+                            System.out.println("Processo não declarado.");
+                            break;
+                        }
+
+                        PCB process = so.getProcesso(Integer.parseInt(input[1]));
+
+                        System.out.println(process);
+                        System.out.println("Memória do processo:");
+
+                        for(int pag : process.tabelaPag) {so.utils.dump(so.tamFrame*pag, (so.tamFrame*(pag+1))-1);}
+
+		    			break;
+                    
+                    case "dumpM":
+                        if(input.length<3){
+                            System.out.println("Endereços não declarados.");
+
+                            break;
+                        }
+
+                        so.utils.dump(Integer.parseInt(input[1]),Integer.parseInt(input[2]));
+
+		    			break;
+
+                    case "exec":
+                        if(execAll) {
+                            System.out.println("Comando execAll em andamento, somente um comando de execucao por vez");
+                        
+                            break;
+                        }
+                        if(input.length == 1) {
+                            System.out.println("Processo não declarado.");
+                        
+                            break;
+                        }
+
+                        if(!input[1].matches("[0-9]+")) { // [0-9]+ -> a string deve conter apenas numeros de 0 ate 9 somente 
+                            System.out.println("Use apenas o id do processo para identifica-lo");
+
+                            break;
+                        } 
+
+                        int procID = Integer.parseInt(input[1]);
+
+                        if(so.getProcesso(procID) == null) {
+                            System.out.println("Processo nao encontrado");
+
+                            break;
+                        }
+
+                        if(hw.cpu.run(procID, 0)){System.out.println("Processo " +procID + " concluído.");}
+                        else {System.out.println("não rodou :(");}
+
+                        so.gerenteProg.desalocaProcesso(procID);
+
+                        break;
+
+                    case "traceOn":
+                        hw.cpu.setDebug(true);
+                        System.out.println("Trace ativado");
+
+                        break;
+
+                    case "traceOff":
+                        hw.cpu.setDebug(false);
+                        System.out.println("Trace desligado");
+
+                        break;
+
+                    case "help":
+                        System.out.println(help);
+
+                        break;
+
+                    case "exit":
+                        exit = true;
+                        in.close();
+                    
+                        break;
+
+                    case "execAll":
+                        execAll = true;
+                        so.tExecAll.start();
+                        execAll = false;
+
+                        break;
+
+                    default:
+                        System.out.println("Comando inválido, digite 'help' para listar os comandos.");
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------------------------------------
@@ -1099,8 +1158,7 @@ public class Sistema {
                 new Word(Opcode.JMPIE, 4, 7, -1), // pula pra stop caso 0
                 new Word(Opcode.ADDI, 7, -1, 41), // fibonacci + posição do stop
                 new Word(Opcode.LDI, 1, -1, 0),
-                new Word(Opcode.STD, 1, -1, 41), // 25 posicao de memoria onde inicia a serie de
-                // fibonacci gerada
+                new Word(Opcode.STD, 1, -1, 41), // 25 posicao de memoria onde inicia a serie de fibonacci gerada
                 new Word(Opcode.SUBI, 3, -1, 1), // se 1 pula pro stop
                 new Word(Opcode.JMPIE, 4, 3, -1),
                 new Word(Opcode.ADDI, 3, -1, 1),
@@ -1255,6 +1313,8 @@ public class Sistema {
                 new Word(Opcode.ADDI, 4, -1, 1), // ate aqui
                 new Word(Opcode.JMPIGM, -1, 7, 98), // LOOP chave 2
                 new Word(Opcode.STOP, -1, -1, -1), // POS 45
+                new Word(Opcode.DATA, -1, -1, -1),
+                new Word(Opcode.DATA, -1, -1, -1),
                 new Word(Opcode.DATA, -1, -1, -1),
                 new Word(Opcode.DATA, -1, -1, -1),
                 new Word(Opcode.DATA, -1, -1, -1),
