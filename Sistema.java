@@ -23,6 +23,7 @@
 import java.util.Scanner;
 import java.util.Queue;
 import java.util.List;
+import java.net.SocketTimeoutException;
 import java.util.LinkedList;
 
 public class Sistema {
@@ -559,9 +560,6 @@ public class Sistema {
 
         private void execAll(){
             Queue<Integer> ready = new LinkedList<Integer>();
-            for (PCB pcb : so.listaDeProcessos) {
-                if (pcb!=null) ready.add(pcb.id);
-            }
 
             //======Comando para deixar a concorrencia mais aparente======//
             try {
@@ -570,6 +568,15 @@ public class Sistema {
                 Thread.currentThread().interrupt();
             }
             //============================================================//
+
+            for (PCB pcb : so.listaDeProcessos) {
+                if (pcb!=null) ready.add(pcb.id);
+            }
+
+            if(ready.size() == 0) {
+                System.out.println("Nao ha processos para executar");
+                return;
+            }
 
             int currID = -1;
             while(!ready.isEmpty()){
@@ -792,13 +799,11 @@ public class Sistema {
     public void run() {
         so.tMenu.start();
 
-        try { // Espera cada thread terminar
+        try {
                 so.tMenu.join();
-                so.tExecAll.join();  
         } catch (InterruptedException e) {
-                // Se a thread for interrompida enquanto espera, trata a exceção
-                System.err.println("A thread principal foi interrompida enquanto esperava.");
-                Thread.currentThread().interrupt();  // Restaura o estado de interrupção
+            System.err.println("A thread principal foi interrompida enquanto esperava.");
+            Thread.currentThread().interrupt();  // Restaura o estado de interrupção
         }
 	}
         // so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
@@ -835,19 +840,20 @@ public class Sistema {
             boolean exit = false;
             boolean execAll = false;
 
-            String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + //
-                                    "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
-                                    "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
-                                    "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
-                                    "ps - lista todos processos existentes\n" +
-                                    "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
-                                    "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
-                                    "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
-                                    "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
-                                    "traceOff - desliga o modo acima\n" +
-                                    "execAll - executa todos os processos prontos\n" +
-                                    "help - lista as instruções\n" +
-                                    "exit - sai do sistema";
+            String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + 
+                                                 "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
+                                                 "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
+                          "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
+                          "ps - lista todos processos existentes\n" +
+                          "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
+                          "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
+                          "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
+                          "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
+                          "traceOff - desliga o modo acima\n" +
+                          "execAll - executa todos os processos prontos\n" +
+                          "help - lista as instruções\n" +
+                          "exit - sai do sistema";
+
             System.out.println(help);
             Scanner in = new Scanner(System.in);
 
@@ -975,10 +981,40 @@ public class Sistema {
 
                     case "execAll":
                         execAll = true;
-                        so.tExecAll.start();
+
+                        if(so.tExecAll != null && so.tExecAll.isAlive()) { // se tExecAll ainda esta rodando a funcao
+                        System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
+
+                        } else {
+                            so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
+                                                               // (aparentemente nao eh possivel utilizar uma mesma thread)
+                            so.tExecAll.start(); //inicia nova execucao
+                        }
+
                         execAll = false;
 
                         break;
+                        
+                        //if (so.tExecAll.isAlive()) { // se tExecAll já está em execução
+                        //    System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
+                        //    try {
+                        //        so.tExecAll.join();  // espera ela terminar
+                        //    } catch (InterruptedException e) {
+                        //        System.err.println("A thread principal foi interrompida enquanto esperava.");
+                        //        Thread.currentThread().interrupt(); 
+                        //    }
+                        //}
+//
+                        //so.tExecAll = new ThreadExecAll(); // tExecAll já terminou, entao cria nova instancia 
+                        //                                   // (aparentemente nao eh possivel utilizar uma mesma thread)
+                        //so.tExecAll.start();  // inicia nova execução
+                        //
+                        //try { 
+                        //    so.tExecAll.join(); // espera ela terminar
+                        //} catch (InterruptedException e) {
+                        //    System.err.println("A thread principal foi interrompida enquanto esperava.");
+                        //    Thread.currentThread().interrupt();
+                        //}
 
                     default:
                         System.out.println("Comando inválido, digite 'help' para listar os comandos.");
