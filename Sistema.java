@@ -376,7 +376,7 @@ public class Sistema {
                         case STOP: // por enquanto, para execucao
                             sysCall.stop();
                             cpuStop = true;
-                            //DESALOCAR AQUI
+                            so.gerenteProg.desalocaProcesso(pcb.id);
                             return true;
 
                         // Inexistente
@@ -586,7 +586,7 @@ public class Sistema {
                     ready.add(currID);
                 }
 				else {
-					so.gerenteProg.desalocaProcesso(currID);
+					
 				}
             }
         }
@@ -983,8 +983,7 @@ public class Sistema {
                         execAll = true;
 
                         if(so.tExecAll != null && so.tExecAll.isAlive()) { // se tExecAll ainda esta rodando a funcao
-                        System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
-
+                            System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
                         } else {
                             so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
                                                                // (aparentemente nao eh possivel utilizar uma mesma thread)
@@ -994,27 +993,6 @@ public class Sistema {
                         execAll = false;
 
                         break;
-                        
-                        //if (so.tExecAll.isAlive()) { // se tExecAll já está em execução
-                        //    System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
-                        //    try {
-                        //        so.tExecAll.join();  // espera ela terminar
-                        //    } catch (InterruptedException e) {
-                        //        System.err.println("A thread principal foi interrompida enquanto esperava.");
-                        //        Thread.currentThread().interrupt(); 
-                        //    }
-                        //}
-//
-                        //so.tExecAll = new ThreadExecAll(); // tExecAll já terminou, entao cria nova instancia 
-                        //                                   // (aparentemente nao eh possivel utilizar uma mesma thread)
-                        //so.tExecAll.start();  // inicia nova execução
-                        //
-                        //try { 
-                        //    so.tExecAll.join(); // espera ela terminar
-                        //} catch (InterruptedException e) {
-                        //    System.err.println("A thread principal foi interrompida enquanto esperava.");
-                        //    Thread.currentThread().interrupt();
-                        //}
 
                     default:
                         System.out.println("Comando inválido, digite 'help' para listar os comandos.");
