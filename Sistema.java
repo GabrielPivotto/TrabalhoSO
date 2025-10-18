@@ -163,7 +163,6 @@ public class Sistema {
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
 
-
             int[] tabPag = pcb.tabelaPag;
             int tFrame = so.tamFrame;
             so.atualizaPtrProcess(id); // atualiza o ptr que diz qual processo esta rodando
@@ -243,9 +242,12 @@ public class Sistema {
                             break;
                         case STX: // [Rd] ←Rs
                             if (legal(reg[ir.ra], tabPag)) {
-                                m[reg[ir.ra]].opc = Opcode.DATA;
-                                m[reg[ir.ra]].p = reg[ir.rb];
-                                pc++;
+                                int pag = reg[ir.ra] / tFrame;
+                                int deslocamento = reg[ir.ra] % tFrame;
+
+                                m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
+								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
+								pc++;
                             }
                             ;
                             break;
@@ -1071,7 +1073,7 @@ public class Sistema {
             ),
             new Program("progMinimo",
             new Word[]{
-                new Word(Opcode.LDI, 0, -1, 999),
+                new Word(Opcode.LDI, 0, -1, 7),
                 new Word(Opcode.STD, 0, -1, 8),
                 new Word(Opcode.STD, 0, -1, 9),
                 new Word(Opcode.STD, 0, -1, 10),
@@ -1087,39 +1089,39 @@ public class Sistema {
                 new Word(Opcode.DATA, -1, -1, -1) // 13
             }),
             new Program("fibonacci10",
-            new Word[]{ // mesmo que prog exemplo, so que usa r0 no lugar de r8
-                new Word(Opcode.LDI, 1, -1, 0),
-				new Word(Opcode.JMP, -1, -1, 100), //REMOVER
-                new Word(Opcode.STD, 1, -1, 20),
-                new Word(Opcode.LDI, 2, -1, 1),
-                new Word(Opcode.STD, 2, -1, 21),
-                new Word(Opcode.LDI, 0, -1, 22),
-                new Word(Opcode.LDI, 6, -1, 6),
-                new Word(Opcode.LDI, 7, -1, 31),
-                new Word(Opcode.LDI, 3, -1, 0),
-                new Word(Opcode.ADD, 3, 1, -1),
-                new Word(Opcode.LDI, 1, -1, 0),
-                new Word(Opcode.ADD, 1, 2, -1),
-                new Word(Opcode.ADD, 2, 3, -1),
-                new Word(Opcode.STX, 0, 2, -1),
-                new Word(Opcode.ADDI, 0, -1, 1),
-                new Word(Opcode.SUB, 7, 0, -1),
-                new Word(Opcode.JMPIG, 6, 7, -1),
-                new Word(Opcode.STOP, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1), // POS 20
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1),
-                new Word(Opcode.DATA, -1, -1, -1) // ate aqui - serie de fibonacci ficara armazenada
-            }),
+                new Word[]{ // mesmo que prog exemplo, so que usa r0 no lugar de r8
+                    new Word(Opcode.LDI, 1, -1, 0),
+                    new Word(Opcode.STD, 1, -1, 20),
+                    new Word(Opcode.LDI, 2, -1, 1),
+                    new Word(Opcode.STD, 2, -1, 21),
+                    new Word(Opcode.LDI, 0, -1, 22),
+                    new Word(Opcode.LDI, 6, -1, 6),
+                    new Word(Opcode.LDI, 7, -1, 31),
+                    new Word(Opcode.LDI, 3, -1, 0),
+                    new Word(Opcode.ADD, 3, 1, -1),
+                    new Word(Opcode.LDI, 1, -1, 0),
+                    new Word(Opcode.ADD, 1, 2, -1),
+                    new Word(Opcode.ADD, 2, 3, -1),
+                    new Word(Opcode.STX, 0, 2, -1),
+                    new Word(Opcode.ADDI, 0, -1, 1),
+                    new Word(Opcode.SUB, 7, 0, -1),
+                    new Word(Opcode.JMPIG, 6, 7, -1),
+                    new Word(Opcode.STOP, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1), // POS 20
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1),
+                    new Word(Opcode.DATA, -1, -1, -1) // ate aqui - serie de fibonacci ficara armazenada
+                }),
+
             new Program("fibonacci10v2",
             new Word[]{ // mesmo que prog exemplo, so que usa r0 no lugar de r8
                 new Word(Opcode.LDI, 1, -1, 0),
