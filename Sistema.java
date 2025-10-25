@@ -473,7 +473,12 @@ public class Sistema {
             System.out.println("SYSCALL pars:  " + hw.cpu.reg[8] + " / " + hw.cpu.reg[9]);
 
             if (hw.cpu.reg[8] == 1) {
-                // leitura ...
+                Scanner in = new Scanner(System.in);
+                System.out.print("IN:    ");
+                int valor = in.nextInt();
+                hw.mem.pos[hw.cpu.reg[9]].opc = Opcode.DATA;
+                hw.mem.pos[hw.cpu.reg[9]].p = valor;
+                in.close();
 
             } else if (hw.cpu.reg[8] == 2) {
                 // escrita - escreve o conteuodo da memoria na posicao dada em reg[9]
