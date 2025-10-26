@@ -713,7 +713,7 @@ public class Sistema {
         public Utilities utils;
         public int tamFrame;
         public GM gerenteMem;
-        public GP gerenteProg;
+        public GP gerenteProg; 
         public PCB[] listaDeProcessos;	// guarda os processos (PCB) que estao em memoria (pode ser considerado a lista de ready)
         public int ptrProcessRunning;	// vai guardar a pos na lista de PCB do processo que esta rodando
         public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
