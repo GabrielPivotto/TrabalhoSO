@@ -76,7 +76,7 @@ public class Sistema {
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
-        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow;
+        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado;
     }
 
     public class CPU {
@@ -88,6 +88,7 @@ public class Sistema {
         private Word ir;    // instruction register,
         private int[] reg;  // registradores da CPU
         private Interrupts irpt; // durante instrucao, interrupcao pode ser sinalizada
+        private Interrupts irptIO;
         // FIM CONTEXTO DA CPU: tudo que precisa sobre o estado de um processo para
         // executa-lo
         // nas proximas versoes isto pode modificar
@@ -373,6 +374,8 @@ public class Sistema {
                             sysCall.handle(); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
                             // temos IO
                             pc++;
+                            pcb.pcState = pc;
+			                pcb.regState = reg;
                             return 2;
 
                         case STOP: // por enquanto, para execucao
@@ -446,6 +449,13 @@ public class Sistema {
         }
 
         public void handle(Interrupts irpt) {
+            if(irpt == Interrupts.IOTerminado) {
+                //tratar interrupcao de IO terminada
+                
+
+                return;
+            }
+
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
@@ -469,16 +479,18 @@ public class Sistema {
 
         public void handle() { // chamada de sistema 
             // suporta somente IO, com parametros 
-            // reg[8] = in ou out    e reg[9] endereco do inteiro
+            // reg[8] = in ou out e reg[9] endereco do inteiro
             System.out.println("SYSCALL pars:  " + hw.cpu.reg[8] + " / " + hw.cpu.reg[9]);
 
             if (hw.cpu.reg[8] == 1) {
-                Scanner in = new Scanner(System.in);
+                Scanner entrada = new Scanner(System.in);
                 System.out.print("IN:    ");
-                int valor = in.nextInt();
+                int valor = entrada.nextInt();
+                entrada.nextLine();
                 hw.mem.pos[hw.cpu.reg[9]].opc = Opcode.DATA;
                 hw.mem.pos[hw.cpu.reg[9]].p = valor;
-                in.close();
+
+                entrada.close();
 
             } else if (hw.cpu.reg[8] == 2) {
                 // escrita - escreve o conteuodo da memoria na posicao dada em reg[9]
@@ -570,11 +582,11 @@ public class Sistema {
             Queue<Integer> blocked = new LinkedList<Integer>();
 
             //======Comando para deixar a concorrencia mais aparente======//
-            try {
-                Thread.sleep(10000); 
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            //try {
+            //    Thread.sleep(10000); 
+            //} catch (InterruptedException e) {
+            //    Thread.currentThread().interrupt();
+            //}
             //============================================================//
 
             for (PCB pcb : so.listaDeProcessos) {
@@ -713,7 +725,7 @@ public class Sistema {
         public Utilities utils;
         public int tamFrame;
         public GM gerenteMem;
-        public GP gerenteProg; 
+        public GP gerenteProg;
         public PCB[] listaDeProcessos;	// guarda os processos (PCB) que estao em memoria (pode ser considerado a lista de ready)
         public int ptrProcessRunning;	// vai guardar a pos na lista de PCB do processo que esta rodando
         public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
@@ -860,9 +872,10 @@ public class Sistema {
                           "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
                           "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
                           "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
+                          "execAll - executa todos os processos prontos\n" +
                           "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
                           "traceOff - desliga o modo acima\n" +
-                          "execAll - executa todos os processos prontos\n" +
+                          "I/O - responde chamadas de entrada e saida feitas por programas\n" +
                           "help - lista as instruções\n" +
                           "exit - sai do sistema";
 
@@ -961,13 +974,16 @@ public class Sistema {
                             break;
                         }
 
-                        if(hw.cpu.run(procID, 0)){System.out.println("Processo " +procID + " concluído.");}
+                        if(hw.cpu.run(procID, 0) == 0){System.out.println("Processo " +procID + " concluído.");}
                         else {System.out.println("não rodou :(");}
 
                         so.gerenteProg.desalocaProcesso(procID);
 
                         break;
-
+                
+                    case "I/O":
+                        break;
+                        
                     case "traceOn":
                         hw.cpu.setDebug(true);
                         System.out.println("Trace ativado");
@@ -995,7 +1011,7 @@ public class Sistema {
                         execAll = true;
 
                         if(so.tExecAll != null && so.tExecAll.isAlive()) { // se tExecAll ainda esta rodando a funcao
-                            System.out.println("tExecAll já está em execução. Aguarde a conclusão...");
+                            System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
                         } else {
                             so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
                                                                // (aparentemente nao eh possivel utilizar uma mesma thread)
@@ -1007,9 +1023,11 @@ public class Sistema {
                         break;
 
                     default:
-                        System.out.println("Comando inválido, digite 'help' para listar os comandos.");
+                        System.out.println(input[0] + " -> Comando inválido, digite 'help' para listar os comandos.");
                 }
             }
+
+            in.close();
         }
     }
 
