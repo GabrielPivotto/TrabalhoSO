@@ -155,7 +155,7 @@ public class Sistema {
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
         }*/
 
-        public boolean run(int id, int instMax) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
+        public int run(int id, int instMax) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
             // esta devidamente setado
             PCB pcb = so.getProcesso(id);
             System.out.println(pcb);
@@ -373,13 +373,13 @@ public class Sistema {
                             sysCall.handle(); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
                             // temos IO
                             pc++;
-                            break;
+                            return 2;
 
                         case STOP: // por enquanto, para execucao
                             sysCall.stop();
                             cpuStop = true;
                             so.gerenteProg.desalocaProcesso(pcb.id);
-                            return true;
+                            return 0;
 
                         // Inexistente
                         default:
@@ -404,7 +404,7 @@ public class Sistema {
 			pcb.regState = reg;
             System.out.println(pcb);
             //so.gerenteProg.desalocaProcesso(so.gerenteProg.novoIdProcesso); //inserido aqui por finalidade de teste da funcao REMOVER DEPOIS
-            return false;
+            return 1;
         }
 
 
@@ -567,6 +567,7 @@ public class Sistema {
 
         private void execAll(){
             Queue<Integer> ready = new LinkedList<Integer>();
+            Queue<Integer> blocked = new LinkedList<Integer>();
 
             //======Comando para deixar a concorrencia mais aparente======//
             try {
@@ -589,12 +590,16 @@ public class Sistema {
             while(!ready.isEmpty()){
                 System.out.println(ready.toString());
                 currID = ready.remove();
-                if (!hw.cpu.run(currID, 2)){
-                    ready.add(currID);
+                switch (hw.cpu.run(currID, 2)) {
+                    case 1:
+                        ready.add(currID);
+                        break;
+                    
+                    case 2:
+                        blocked.add(currID);
+                    default:
+                        break;
                 }
-				else {
-					
-				}
             }
         }
     }
