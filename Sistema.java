@@ -990,7 +990,7 @@ public class Sistema {
                         execAll = true;
 
                         if(so.tExecAll != null && so.tExecAll.isAlive()) { // se tExecAll ainda esta rodando a funcao
-                            System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
+                            System.out.println("tExecAll já está em execução. Aguarde a conclusão...");
                         } else {
                             so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
                                                                // (aparentemente nao eh possivel utilizar uma mesma thread)
