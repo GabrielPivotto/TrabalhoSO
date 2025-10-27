@@ -21,6 +21,7 @@
 //           em seguida solicita a execução de algum programa com  loadAndExec
 
 import java.util.Scanner;
+import java.util.concurrent.Semaphore;
 import java.util.Queue;
 import java.util.LinkedList;
 
@@ -28,6 +29,7 @@ public class Sistema {
     //trocar de lugar dps
     public Queue<String> IOReq = new LinkedList<>();
     public Queue<Integer> IOResp = new LinkedList<>(); 
+    public Semaphore semIO = new Semaphore(0);
 
     // -------------------------------------------------------------------------------------------------------
     // --------------------- H A R D W A R E - definicoes de HW
@@ -165,6 +167,8 @@ public class Sistema {
             pc = pcb.pcState;                                     // pc cfe endereco logico
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
+            
+            System.out.println("Qtd IO = " + IOTerminados);
 
             int[] tabPag = pcb.tabelaPag;
             int tFrame = so.tamFrame;
@@ -405,11 +409,7 @@ public class Sistema {
                     break;
 				}
 
-                if(irptIO == Interrupts.IOTerminado) {
-                    IOTerminados++;
-                    irptIO = Interrupts.noInterrupt;
-                    System.out.println("IOTerminados: " + IOTerminados);
-                }
+                
             } // FIM DO CICLO DE UMA INSTRUÇÃO
 			pcb.pcState = pc;
 			pcb.regState = reg;
@@ -425,15 +425,16 @@ public class Sistema {
     // ------------------------------------------------------------------------------------------------------
 
     public class DispositivoIO extends Thread{
-        private int IOTerminados = 0;
 
-        public DispositivoIO() {}
-
+        @Override
         public void run() {
+            int IOTerminados = 0;
+
             while(true) {
                 if(IOResp.isEmpty()) {
                     try {
-                        wait();
+                        semIO.acquire();
+                        System.out.println("Dispositivo IO acordou");
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -444,12 +445,12 @@ public class Sistema {
                 String id = req.split(" ")[0];
                 int memPos = Integer.parseInt(req.split(" ")[1]);
 
-                System.out.print(id +" -> IN:    " + resp);
+                System.out.print(id + " -> IN:    " + resp);
                 hw.mem.pos[memPos].opc = Opcode.DATA;
                 hw.mem.pos[memPos].p = resp;
                 IOTerminados++;
 
-                if(hw.cpu.irptIO == Interrupts.noInterrupt){
+                if(hw.cpu.irptIO == Interrupts.noInterrupt && IOTerminados > 0){
                     hw.cpu.irptIO = Interrupts.IOTerminado;
                     IOTerminados--;
                 }
@@ -461,11 +462,13 @@ public class Sistema {
     // -----------------------------------------------
     public class HW {
 
-
+        public DispositivoIO io;
         public Memory mem;
         public CPU cpu;
 
         public HW(int tamMem) {
+            io = new DispositivoIO();
+            io.start();
             mem = new Memory(tamMem);
             cpu = new CPU(mem, true); // true liga debug
         }
@@ -528,16 +531,6 @@ public class Sistema {
                 String req = id + " " + memPos;
                 IOReq.add(req);
 
-            //if (hw.cpu.reg[8] == 1) {
-            //    Scanner entrada = new Scanner(System.in);
-            //    System.out.print("IN:    ");
-            //    int valor = entrada.nextInt();
-            //    entrada.nextLine();
-            //    hw.mem.pos[hw.cpu.reg[9]].opc = Opcode.DATA;
-            //    hw.mem.pos[hw.cpu.reg[9]].p = valor;
-//
-            //    entrada.close();
-//
             } else if (hw.cpu.reg[8] == 2) {
                 // escrita - escreve o conteuodo da memoria na posicao dada em reg[9]
                 System.out.println("OUT:   " + hw.mem.pos[hw.cpu.reg[9]].p);
@@ -645,27 +638,32 @@ public class Sistema {
             }
 
             int currID = -1;
-            while(!ready.isEmpty()){
+            while(!ready.isEmpty() || !blocked.isEmpty()){
                 int unblock = hw.cpu.IOTerminados;
 
                 for(int i=0; i<unblock; i++){
                     if(!blocked.isEmpty()){
                         ready.add(blocked.remove());
                         hw.cpu.IOTerminados--;
+                        hw.cpu.irptIO = Interrupts.noInterrupt;
                     }
                 }
 
-                System.out.println(ready.toString());
-                currID = ready.remove();
-                switch (hw.cpu.run(currID, 2)) {
-                    case 1:
-                        ready.add(currID);
-                        break;
-                    
-                    case 2:
-                        blocked.add(currID);
-                    default:
-                        break;
+                //System.out.println(ready.toString());
+                if(!ready.isEmpty()) {
+                    currID = ready.remove();
+                    switch (hw.cpu.run(currID, 2)) {
+                        case 1:
+                            ready.add(currID);
+                            break;
+
+                        case 2:
+                            blocked.add(currID);
+                            break;
+
+                        default:
+                            break;
+                    }
                 }
             }
         }
@@ -1028,7 +1026,7 @@ public class Sistema {
 
                             break;
                         }
-
+                        //ARRUMAR ISSO
                         if(hw.cpu.run(procID, 0) == 0){System.out.println("Processo " +procID + " concluído.");}
                         else {System.out.println("não rodou :(");}
 
@@ -1053,7 +1051,7 @@ public class Sistema {
                             }
 
                             IOResp.add(Integer.parseInt(resp));
-                            notify();
+                            semIO.release();
                         }
                         break;
                         
@@ -1102,6 +1100,10 @@ public class Sistema {
 
             in.close();
         }
+    }
+
+    public class ComunicacaoIO {
+
     }
 
     // -------------------------------------------------------------------------------------------------------
