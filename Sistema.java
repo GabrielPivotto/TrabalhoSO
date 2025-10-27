@@ -22,11 +22,12 @@
 
 import java.util.Scanner;
 import java.util.Queue;
-import java.util.List;
-import java.net.SocketTimeoutException;
 import java.util.LinkedList;
 
 public class Sistema {
+    //trocar de lugar dps
+    public Queue<String> IOReq = new LinkedList<>();
+    public Queue<Integer> IOResp = new LinkedList<>(); 
 
     // -------------------------------------------------------------------------------------------------------
     // --------------------- H A R D W A R E - definicoes de HW
@@ -89,6 +90,7 @@ public class Sistema {
         private int[] reg;  // registradores da CPU
         private Interrupts irpt; // durante instrucao, interrupcao pode ser sinalizada
         private Interrupts irptIO;
+        private int IOTerminados = 0;
         // FIM CONTEXTO DA CPU: tudo que precisa sobre o estado de um processo para
         // executa-lo
         // nas proximas versoes isto pode modificar
@@ -371,7 +373,7 @@ public class Sistema {
 
                         // Chamadas de sistema
                         case SYSCALL:
-                            sysCall.handle(); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
+                            sysCall.handle(id, reg[9]); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
                             // temos IO
                             pc++;
                             pcb.pcState = pc;
@@ -402,6 +404,12 @@ public class Sistema {
 					cpuStop = true;
                     break;
 				}
+
+                if(irptIO == Interrupts.IOTerminado) {
+                    IOTerminados++;
+                    irptIO = Interrupts.noInterrupt;
+                    System.out.println("IOTerminados: " + IOTerminados);
+                }
             } // FIM DO CICLO DE UMA INSTRUÇÃO
 			pcb.pcState = pc;
 			pcb.regState = reg;
@@ -416,9 +424,43 @@ public class Sistema {
     // -----------------------------------------------------------------------
     // ------------------------------------------------------------------------------------------------------
 
+    public class DispositivoIO extends Thread{
+        private int IOTerminados = 0;
+
+        public DispositivoIO() {}
+
+        public void run() {
+            while(true) {
+                if(IOResp.isEmpty()) {
+                    try {
+                        wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                int resp = IOResp.remove();
+                String req = IOReq.remove();
+                String id = req.split(" ")[0];
+                int memPos = Integer.parseInt(req.split(" ")[1]);
+
+                System.out.print(id +" -> IN:    " + resp);
+                hw.mem.pos[memPos].opc = Opcode.DATA;
+                hw.mem.pos[memPos].p = resp;
+                IOTerminados++;
+
+                if(hw.cpu.irptIO == Interrupts.noInterrupt){
+                    hw.cpu.irptIO = Interrupts.IOTerminado;
+                    IOTerminados--;
+                }
+            }
+        }
+    }
+
     // ------------------- HW - constituido de CPU e MEMORIA
     // -----------------------------------------------
     public class HW {
+
 
         public Memory mem;
         public CPU cpu;
@@ -477,21 +519,25 @@ public class Sistema {
             System.out.println("                                               SYSCALL STOP");
         }
 
-        public void handle() { // chamada de sistema 
+        public void handle(int id, int memPos) { // chamada de sistema 
             // suporta somente IO, com parametros 
             // reg[8] = in ou out e reg[9] endereco do inteiro
             System.out.println("SYSCALL pars:  " + hw.cpu.reg[8] + " / " + hw.cpu.reg[9]);
 
-            if (hw.cpu.reg[8] == 1) {
-                Scanner entrada = new Scanner(System.in);
-                System.out.print("IN:    ");
-                int valor = entrada.nextInt();
-                entrada.nextLine();
-                hw.mem.pos[hw.cpu.reg[9]].opc = Opcode.DATA;
-                hw.mem.pos[hw.cpu.reg[9]].p = valor;
+            if(hw.cpu.reg[8] == 1) {
+                String req = id + " " + memPos;
+                IOReq.add(req);
 
-                entrada.close();
-
+            //if (hw.cpu.reg[8] == 1) {
+            //    Scanner entrada = new Scanner(System.in);
+            //    System.out.print("IN:    ");
+            //    int valor = entrada.nextInt();
+            //    entrada.nextLine();
+            //    hw.mem.pos[hw.cpu.reg[9]].opc = Opcode.DATA;
+            //    hw.mem.pos[hw.cpu.reg[9]].p = valor;
+//
+            //    entrada.close();
+//
             } else if (hw.cpu.reg[8] == 2) {
                 // escrita - escreve o conteuodo da memoria na posicao dada em reg[9]
                 System.out.println("OUT:   " + hw.mem.pos[hw.cpu.reg[9]].p);
@@ -600,6 +646,15 @@ public class Sistema {
 
             int currID = -1;
             while(!ready.isEmpty()){
+                int unblock = hw.cpu.IOTerminados;
+
+                for(int i=0; i<unblock; i++){
+                    if(!blocked.isEmpty()){
+                        ready.add(blocked.remove());
+                        hw.cpu.IOTerminados--;
+                    }
+                }
+
                 System.out.println(ready.toString());
                 currID = ready.remove();
                 switch (hw.cpu.run(currID, 2)) {
@@ -982,6 +1037,24 @@ public class Sistema {
                         break;
                 
                     case "I/O":
+                        if(IOReq.isEmpty()) {
+                            System.out.println("Nenhuma requisição de I/O pendente.");
+
+                        }
+                        else {
+                            String id = IOReq.peek().split(" ")[0];
+                            System.out.println("Requisição de I/O do processo " + id);
+                            
+                            String resp = in.nextLine();
+                            
+                            if(!resp.matches("\\d+")) {
+                                System.out.println("Apenas digitos sao aceitos");
+                                break;
+                            }
+
+                            IOResp.add(Integer.parseInt(resp));
+                            notify();
+                        }
                         break;
                         
                     case "traceOn":
