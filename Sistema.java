@@ -26,6 +26,8 @@ import java.util.Queue;
 import java.util.LinkedList;
 
 public class Sistema {
+    public volatile boolean turnOff = false;
+
     //trocar de lugar dps
     public Queue<String> IOReq = new LinkedList<>();
     public Queue<Integer> IOResp = new LinkedList<>(); 
@@ -91,8 +93,7 @@ public class Sistema {
         private Word ir;    // instruction register,
         private int[] reg;  // registradores da CPU
         private Interrupts irpt; // durante instrucao, interrupcao pode ser sinalizada
-        private Interrupts irptIO;
-        private int IOTerminados = 0;
+        private volatile Interrupts irptIO = Interrupts.noInterrupt;
         // FIM CONTEXTO DA CPU: tudo que precisa sobre o estado de um processo para
         // executa-lo
         // nas proximas versoes isto pode modificar
@@ -168,7 +169,7 @@ public class Sistema {
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
             
-            System.out.println("Qtd IO = " + IOTerminados);
+            //System.out.println("Qtd IO = " + IOTerminados);
 
             int[] tabPag = pcb.tabelaPag;
             int tFrame = so.tamFrame;
@@ -176,6 +177,9 @@ public class Sistema {
             // (aponta pra pos na lista de processos do S.O.)
 
             cpuStop = false;
+            int fimCiclo = 1; //1 - terminou ciclo normal; 
+                              //2 - bloqueado por IO; 
+                              //0 - terminou execucao
 
 			int instCount = 0;
             while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
@@ -183,7 +187,7 @@ public class Sistema {
 				// FASE DE FETCH
                 int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
-
+                
                 System.out.println("pagina atual = " + pc / tFrame);
                 System.out.println("linha atual = " + pc % tFrame);
                 System.out.println("PC = " + pc);
@@ -377,18 +381,21 @@ public class Sistema {
 
                         // Chamadas de sistema
                         case SYSCALL:
-                            sysCall.handle(id, reg[9]); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
+                            sysCall.handle(id, tabPag); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
                             // temos IO
                             pc++;
                             pcb.pcState = pc;
 			                pcb.regState = reg;
-                            return 2;
+                            fimCiclo = 2;
+                            cpuStop = true; //ao fazer SYSCALL para IO precisa parar a CPU e escalonar outro processo
+                            break;
 
                         case STOP: // por enquanto, para execucao
                             sysCall.stop();
                             cpuStop = true;
                             so.gerenteProg.desalocaProcesso(pcb.id);
-                            return 0;
+                            fimCiclo = 0;
+                            break;
 
                         // Inexistente
                         default:
@@ -402,6 +409,11 @@ public class Sistema {
                     ih.handle(irpt);                  // desvia para rotina de tratamento - esta rotina é do SO
                     cpuStop = true;                   // nesta versao, para a CPU
                 }
+                //if (irptIO == Interrupts.IOTerminado) { // existe interrupção de IO
+                //    irptIO = Interrupts.noInterrupt;
+                //    
+                //    System.out.println("Interrupcao tratada");
+                //}
 				instCount++;
                 System.out.println(instCount + "---" + instMax);
 				if(instCount==instMax) {
@@ -415,10 +427,8 @@ public class Sistema {
 			pcb.regState = reg;
             System.out.println(pcb);
             //so.gerenteProg.desalocaProcesso(so.gerenteProg.novoIdProcesso); //inserido aqui por finalidade de teste da funcao REMOVER DEPOIS
-            return 1;
+            return fimCiclo;
         }
-
-
     }
     // ------------------ C P U - fim
     // -----------------------------------------------------------------------
@@ -428,16 +438,18 @@ public class Sistema {
 
         @Override
         public void run() {
+            System.out.println("Dispositivo IO iniciado");
             int IOTerminados = 0;
 
-            while(true) {
+            while(!turnOff) {
                 if(IOResp.isEmpty()) {
                     try {
                         semIO.acquire();
-                        System.out.println("Dispositivo IO acordou");
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
+
+                    if(turnOff) {break;}
                 }
 
                 int resp = IOResp.remove();
@@ -445,16 +457,22 @@ public class Sistema {
                 String id = req.split(" ")[0];
                 int memPos = Integer.parseInt(req.split(" ")[1]);
 
-                System.out.print(id + " -> IN:    " + resp);
+                System.out.println(id + " -> IN:    " + resp);
                 hw.mem.pos[memPos].opc = Opcode.DATA;
                 hw.mem.pos[memPos].p = resp;
                 IOTerminados++;
 
-                if(hw.cpu.irptIO == Interrupts.noInterrupt && IOTerminados > 0){
-                    hw.cpu.irptIO = Interrupts.IOTerminado;
-                    IOTerminados--;
+                while(IOTerminados > 0) {
+                    System.out.println("IOTerminado = " + IOTerminados);
+                    if(hw.cpu.irptIO == Interrupts.noInterrupt){
+                        System.out.println("Trocou para terminado");
+                        hw.cpu.irptIO = Interrupts.IOTerminado;
+                        IOTerminados--;
+                    }
                 }
             }
+
+            System.out.println("Dispositivo desligado");
         }
     }
 
@@ -468,9 +486,12 @@ public class Sistema {
 
         public HW(int tamMem) {
             io = new DispositivoIO();
-            io.start();
             mem = new Memory(tamMem);
             cpu = new CPU(mem, true); // true liga debug
+        }
+
+        public void startIO() {
+            io.start();
         }
     }
     // -------------------------------------------------------------------------------------------------------
@@ -497,7 +518,7 @@ public class Sistema {
             if(irpt == Interrupts.IOTerminado) {
                 //tratar interrupcao de IO terminada
                 
-
+            
                 return;
             }
 
@@ -522,10 +543,14 @@ public class Sistema {
             System.out.println("                                               SYSCALL STOP");
         }
 
-        public void handle(int id, int memPos) { // chamada de sistema 
+        public void handle(int id, int[] pcb) { // chamada de sistema 
             // suporta somente IO, com parametros 
             // reg[8] = in ou out e reg[9] endereco do inteiro
             System.out.println("SYSCALL pars:  " + hw.cpu.reg[8] + " / " + hw.cpu.reg[9]);
+
+            int frame = hw.cpu.reg[9] / so.tamFrame;
+            int linha = hw.cpu.reg[9] % so.tamFrame;
+            int memPos = pcb[frame] * so.tamFrame + linha;
 
             if(hw.cpu.reg[8] == 1) {
                 String req = id + " " + memPos;
@@ -638,20 +663,22 @@ public class Sistema {
             }
 
             int currID = -1;
-            while(!ready.isEmpty() || !blocked.isEmpty()){
-                int unblock = hw.cpu.IOTerminados;
+            while(!ready.isEmpty() || !blocked.isEmpty()) {
+                //System.out.println("irptIO = " + hw.cpu.irptIO);
 
-                for(int i=0; i<unblock; i++){
-                    if(!blocked.isEmpty()){
-                        ready.add(blocked.remove());
-                        hw.cpu.IOTerminados--;
-                        hw.cpu.irptIO = Interrupts.noInterrupt;
-                    }
+                if(hw.cpu.irptIO == Interrupts.IOTerminado) { // existe interrupção de IO
+                    hw.cpu.irptIO = Interrupts.noInterrupt;
+                    
+                    ready.add(blocked.remove());
+
+                    System.out.println("irptIO = " + hw.cpu.irptIO);
+                    System.out.println("Interrupcao tratada");
                 }
 
                 //System.out.println(ready.toString());
                 if(!ready.isEmpty()) {
                     currID = ready.remove();
+                    System.out.println("ID = " + currID);
                     switch (hw.cpu.run(currID, 2)) {
                         case 1:
                             ready.add(currID);
@@ -665,7 +692,15 @@ public class Sistema {
                             break;
                     }
                 }
+
+                //try {
+                //    Thread.sleep(5000); 
+                //} catch (InterruptedException e) {
+                //    Thread.currentThread().interrupt();
+                //}
             }
+
+            System.out.println("TERMINOU TODOS OS PROCESSOS");
         }
     }
 
@@ -746,7 +781,7 @@ public class Sistema {
             int qtdPag = (programa.length + so.tamFrame - 1) / so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
             PCB pcb = new PCB(novoIdProcesso, new int[qtdPag]); // gera PCB para o processo
 
-            if (so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
+            if(so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
                 so.addListProcessos(pcb);
 
                 return true;
@@ -875,8 +910,10 @@ public class Sistema {
 
     public void run() {
         so.tMenu.start();
+        hw.startIO();
 
         try {
+                hw.io.join();
                 so.tMenu.join();
         } catch (InterruptedException e) {
             System.err.println("A thread principal foi interrompida enquanto esperava.");
@@ -928,7 +965,7 @@ public class Sistema {
                           "execAll - executa todos os processos prontos\n" +
                           "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
                           "traceOff - desliga o modo acima\n" +
-                          "I/O - responde chamadas de entrada e saida feitas por programas\n" +
+                          "IO - responde chamadas de entrada e saida feitas por programas\n" +
                           "help - lista as instruções\n" +
                           "exit - sai do sistema";
 
@@ -1034,7 +1071,10 @@ public class Sistema {
 
                         break;
                 
-                    case "I/O":
+                    case "-":
+                       System.out.println("irptIO = " + hw.cpu.irptIO);
+                        break;
+                    case "IO":
                         if(IOReq.isEmpty()) {
                             System.out.println("Nenhuma requisição de I/O pendente.");
 
@@ -1082,7 +1122,7 @@ public class Sistema {
                         execAll = true;
 
                         if(so.tExecAll != null && so.tExecAll.isAlive()) { // se tExecAll ainda esta rodando a funcao
-                            System.out.println("tExecAll já está em execução. Aguardando a conclusão...");
+                            System.out.println("execAll está em execução. Aguarde a conclusão...");
                         } else {
                             so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
                                                                // (aparentemente nao eh possivel utilizar uma mesma thread)
@@ -1098,12 +1138,10 @@ public class Sistema {
                 }
             }
 
-            in.close();
+            turnOff = true;
+            semIO.release();
+            System.out.println("Sistema desligando...");
         }
-    }
-
-    public class ComunicacaoIO {
-
     }
 
     // -------------------------------------------------------------------------------------------------------
