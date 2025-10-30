@@ -81,7 +81,7 @@ public class Sistema {
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
-        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado;
+        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFault;
     }
 
     public class CPU {
@@ -187,6 +187,10 @@ public class Sistema {
 				// FASE DE FETCH
                 int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
+                if(tabPag[pagAtual] < 0) {
+                    irpt= Interrupts.pageFault;
+                    gm.alocaUm(tabPag, pagAtual);
+                }
                 
                 System.out.println("pagina atual = " + pc / tFrame);
                 System.out.println("linha atual = " + pc % tFrame);
@@ -202,7 +206,6 @@ public class Sistema {
                         for (int i = 0; i < 10; i++) {
                             System.out.print(" r[" + i + "]:" + reg[i]);
                         }
-                        ;
                         System.out.println();
                     }
                     if (debug) {
@@ -526,6 +529,17 @@ public class Sistema {
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
         }
+
+        public void handle(Interrupts irpt, PCB pcb) {
+            if(irpt == Interrupts.pageFault) {
+            
+                return;
+            }
+
+            // apenas avisa - todas interrupcoes neste momento finalizam o programa
+            System.out.println(
+                    "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
+        }
     }
 
     // ------------------- C H A M A D A S D E S I S T E M A - rotinas de tratamento
@@ -717,6 +731,9 @@ public class Sistema {
             tabelaPag = _tabelaPag;
             regState = new int[10];
             pcState = 0;
+            for (int i : _tabelaPag) {
+                i = -1;
+            }
         }
 
         public String toString(){
@@ -738,7 +755,23 @@ public class Sistema {
 
     public class GM {
 
-        boolean aloca(int nroPalavras, int[] tabelaPag) { // determina os frames que os quadros serao alocados
+        boolran alocaUm(int[] tabelaPag, pagN){
+
+            int qtdPag = so.posOcupadas.length;
+            boolean found = false;
+
+            for (int i = 0; i < qtdPag; i++) { // "i" representa a primeira linha do frame atual
+                if (!so.posOcupadas[i]) { // se o frame nao esta ocupado, coloca o numero do frame alocado (i/so.tamFrame)
+                    tabelaPag[pagN] = i;
+                    so.posOcupadas[i] = true; //ocupa pos na memoria
+                    so.qtdFramesDisp--;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /*boolean aloca(int nroPalavras, int[] tabelaPag) { // determina os frames que os quadros serao alocados
             if (((nroPalavras + so.tamFrame - 1) / so.tamFrame) > so.qtdFramesDisp) {
                 return false;
             } // se nao tem frame suficiente, nao aloca
@@ -761,7 +794,7 @@ public class Sistema {
             }
 
             return true;
-        }
+        }*/
 
         void desaloca(int[] tabelaPag) {
             for (int i : tabelaPag) {
@@ -781,7 +814,7 @@ public class Sistema {
             int qtdPag = (programa.length + so.tamFrame - 1) / so.tamFrame; // formula para arredondamento para cima (pois 1.2 paginas tem que arredondar para 2)
             PCB pcb = new PCB(novoIdProcesso, new int[qtdPag]); // gera PCB para o processo
 
-            if(so.gerenteMem.aloca(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
+            if(so.gerenteMem.alocaUm(programa.length, pcb.tabelaPag)) { // se for possivel alocar em memoria
                 so.addListProcessos(pcb);
 
                 return true;
