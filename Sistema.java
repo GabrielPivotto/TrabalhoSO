@@ -458,7 +458,7 @@ public class Sistema {
                 int memPos = Integer.parseInt(req.split(" ")[1]);
 
                 System.out.println(id + " -> IN:    " + resp);
-                hw.mem.pos[memPos].opc = Opcode.DATA;
+                hw.mem.pos[memPos].opc = Opcode.DATA; 
                 hw.mem.pos[memPos].p = resp;
                 IOTerminados++;
 
