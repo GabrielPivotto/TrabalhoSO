@@ -135,8 +135,8 @@ public class Sistema {
         // verificação de enderecamento 
         private boolean legal(int e, int[] tabPag) { // todo acesso a memoria tem que ser verificado se é válido - 
             // aqui no caso se o endereco é um endereco valido em toda memoria
-            System.out.println(e);
             if (e >= 0 && e < tabPag.length * so.tamFrame) { //se "e" nao for maior que a qtd total de linhas do programa
+                if(debug) {System.out.println("Endereco \"" + e + "\" eh valido");}
                 return true;
             } else {
                 irpt = Interrupts.intEnderecoInvalido;    // se nao for liga interrupcao no meio da exec da instrucao
@@ -145,17 +145,30 @@ public class Sistema {
         }
 
         private boolean isOnMem(PCB pcb, int pag){
+            if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
+
             int[] tabPag = pcb.tabelaPag;
+
             if(tabPag[pag] < 0) {
-                System.out.println("Página " + pag + " fora de mem");
+                if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
                 irpt = Interrupts.pageFault;
+
                 so.gerenteMem.alocaUm(pcb, pag);
                 so.utils.loadPage(pcb.id, pag);
+                
                 return false;
             }
             else if(!pcb.onMemory[pag]){
+                if(debug) {System.out.println("Página " + pag + " esta em disco");}
                 so.utils.loadPageFromDisk(pcb.id, pag);
+
+                if(debug) {System.out.println("===================================================");}
                 return false;
+            }
+
+            if(debug) {
+                System.out.println("Página " + pag + " esta em memoria");
+                System.out.println("===================================================");
             }
             return true;
         }
@@ -181,7 +194,6 @@ public class Sistema {
         public int run(int id, int instMax) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
             // esta devidamente setado
             PCB pcb = so.getProcesso(id);
-            System.out.println(pcb);
             pc = pcb.pcState;                                     // pc cfe endereco logico
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
@@ -211,30 +223,25 @@ public class Sistema {
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
                 isOnMem(pcb, pagAtual);
 
-                if(debug) {
-                    System.out.println("pagina = " + pc / tFrame);
-                    System.out.println("linha = " + pc % tFrame);
-                    System.out.println("PC = " + pc);
-                    System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
-                }
-
-                if (legal(pc, tabPag)) { // pc valido
+                if(legal(pc, tabPag)) { // pc valido
                     ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
-                    System.out.println("rb = " + ir.rb);
-                    System.out.println("ra = " + ir.ra);
 
                     if(debug) {
-                        System.out.print("regs: ");
-                        for (int i = 0; i < 10; i++) {
-                            System.out.print(" r[" + i + "]: " + reg[i]);
-                        }
-                        System.out.println();
-                    }
+                        System.out.println(pcb);
 
-                    if (debug) {
-                        System.out.print("pc: " + pc + " exec: ");
+                        System.out.print("\tregs: ");
+                            for (int i = 0; i < 10; i++) {
+                                System.out.print("r[" + i + "]: " + reg[i] + " ");
+                            }
+                        System.out.println();
+
+                        System.out.print("\tpc: " + pc + " | exec: ");
                         u.dump(ir);
+
+                        System.out.println("pagina atual = " + pagAtual);
+                        System.out.println("linha atual = " + linhaAtual);
+                        System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
                     }
 
                     // --------------------------------------------------------------------------------------------------
@@ -284,8 +291,6 @@ public class Sistema {
                                 int deslocamento = reg[ir.ra] % tFrame;
                                 isOnMem(pcb, pag);
                                 
-                                System.out.println("rb = " + ir.rb);
-
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
 								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
 								pc++;
@@ -326,25 +331,16 @@ public class Sistema {
                         // Instrucoes JUMP
                         case JMP: // PC <- k
 							if(legal(ir.p, tabPag)) {
-                                int pag = ir.p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = ir.p;
                             }
                             break;
                         case JMPIM: // PC <- [A]
 							if(legal(m[ir.p].p, tabPag)){
-                                int pag = m[ir.p].p / tFrame;
-                                isOnMem(pcb, pag);
-
                             	pc = m[ir.p].p;
 							}	
                             break;
                         case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
-                                int pag = reg[ir.ra] / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -352,9 +348,6 @@ public class Sistema {
                             break;
                         case JMPIGK: // If RC > 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.rb] > 0) {
-                                int pag = ir.p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -362,9 +355,6 @@ public class Sistema {
                             break;
                         case JMPILK: // If RC < 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.rb] < 0) {
-                                int pag = ir.p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -372,9 +362,6 @@ public class Sistema {
                             break;
                         case JMPIEK: // If RC = 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) &&reg[ir.rb] == 0) {
-                                int pag = ir.p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -382,9 +369,6 @@ public class Sistema {
                             break;
                         case JMPIL: // if Rc < 0 then PC <- Rs Else PC <- PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] < 0) {
-                                int pag = reg[ir.ra] / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -392,9 +376,6 @@ public class Sistema {
                             break;
                         case JMPIE: // If Rc = 0 Then PC <- Rs Else PC <- PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] == 0) {
-                                int pag = reg[ir.ra] / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -402,9 +383,6 @@ public class Sistema {
                             break;
                         case JMPIGM: // If RC > 0 then PC <- [A] else PC++
                             if (legal(ir.p, tabPag)) {
-                                int pag = m[ir.p].p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 if (reg[ir.rb] > 0) {
                                     pc = m[ir.p].p;
                                 } else {
@@ -414,9 +392,6 @@ public class Sistema {
                             break;
                         case JMPILM: // If RC < 0 then PC <- k else PC++
                             if (legal(m[ir.p].p, tabPag) && reg[ir.rb] < 0) {
-                                int pag = m[ir.p].p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
@@ -424,9 +399,6 @@ public class Sistema {
                             break;
                         case JMPIEM: // If RC = 0 then PC <- k else PC++
                             if (legal(m[ir.p].p, tabPag) && reg[ir.rb] == 0) {
-                                int pag = m[ir.p].p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
@@ -434,9 +406,6 @@ public class Sistema {
                             break;
                         case JMPIGT: // If RS>RC then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.ra] > reg[ir.rb]) {
-                                int pag = ir.p / tFrame;
-                                isOnMem(pcb, pag);
-
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -472,7 +441,6 @@ public class Sistema {
                     }
 
 
-                    System.out.println("#################################################################");
                 }
                 // --------------------------------------------------------------------------------------------------
                 // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
@@ -498,9 +466,8 @@ public class Sistema {
 
 			pcb.pcState = pc;
 			pcb.regState = reg;
-            System.out.println(pcb);
 
-
+            System.out.println("#################################################################");
             return fimCiclo;
         }
     }
@@ -561,8 +528,9 @@ public class Sistema {
 
         public HW(int tamMem) {
             io = new DispositivoIO();
-            mem = new Memory(tamMem);
-            memSec = new Memory(tamMem * 2);
+            //SUBSTITUIR VALORES POR TAM MEM
+            mem = new Memory(16);
+            memSec = new Memory(1024);
             cpu = new CPU(mem, memSec, true); // true liga debug
         }
 
@@ -773,7 +741,7 @@ public class Sistema {
             System.out.print(w.rb);
             System.out.print(", p: ");
             System.out.print(w.p);
-            System.out.println("  ] ");
+            System.out.println("] ");
         }
 
         public void dump(int ini, int fim) {
@@ -843,8 +811,10 @@ public class Sistema {
 
                 //System.out.println(ready.toString());
                 if(!ready.isEmpty()) {
+                    System.out.println("---------------Proximo ciclo de execuao---------------");
                     currID = ready.remove();
-                    System.out.println("ID = " + currID);
+                    System.out.println("ID selecionado = " + currID);
+                    System.out.println("------------------------------------------------------");
                     switch (hw.cpu.run(currID, 2)) {
                         case 1:
                             ready.add(currID);
@@ -898,17 +868,16 @@ public class Sistema {
         }
 
         public String toString(){
-            String s = "ID: " + id +
-            "\nNome: " + name +
-            "\nEstado dos registradores: ";
-            for (int n : regState) {
-                s = s + n+ ", ";
-            }
-            s = s + "\nEstado do PC: " + pcState +
-            "\nPáginas Alocadas: ";
+            String s = "Processo:" +
+            "\n\tID: " + id + " | Nome: " + name + " | nEstado do PC: " + pcState + "\n\tPaginas Alocadas: ";
             for (int i : tabelaPag) {
                 s = s + i + ", ";
             }
+            //      "\nEstado dos registradores: ";
+            //for (int n : regState) {
+            //    s = s + n+ ", ";
+            //}
+
             return s;
 
         }
@@ -1080,7 +1049,7 @@ public class Sistema {
             contProcessos = 0;
             posOcupadas = new int[qtdFramesDisp];
             //posOcupadasSec = new boolean[qtdFramesDisp * 2];
-            posOcupadasSec = new boolean[100];
+            posOcupadasSec = new boolean[128];
 
             pagRef = new int[qtdFramesDisp];
             ptrProcessRunning = -1;
@@ -1183,7 +1152,7 @@ public class Sistema {
     // -------------------------------------------------------------------------------------------------------
     // ------------------- instancia e testa sistema
     public static void main(String args[]) {
-        Sistema s = new Sistema(16, 8);
+        Sistema s = new Sistema(1024, 8);
         s.run();
     }
 
