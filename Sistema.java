@@ -210,24 +210,30 @@ public class Sistema {
                 int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
                 isOnMem(pcb, pagAtual);
-                System.out.println("pagina atual = " + pc / tFrame);
-                System.out.println("linha atual = " + pc % tFrame);
-                System.out.println("PC = " + pc);
-                System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
+
+                if(debug) {
+                    System.out.println("pagina = " + pc / tFrame);
+                    System.out.println("linha = " + pc % tFrame);
+                    System.out.println("PC = " + pc);
+                    System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
+                }
 
                 if (legal(pc, tabPag)) { // pc valido
                     ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
+                    System.out.println("rb = " + ir.rb);
+                    System.out.println("ra = " + ir.ra);
 
-                    if (debug) {
-                        System.out.print(" regs: ");
+                    if(debug) {
+                        System.out.print("regs: ");
                         for (int i = 0; i < 10; i++) {
-                            System.out.print(" r[" + i + "]:" + reg[i]);
+                            System.out.print(" r[" + i + "]: " + reg[i]);
                         }
                         System.out.println();
                     }
+
                     if (debug) {
-                        System.out.print("pc: " + pc + "       exec: ");
+                        System.out.print("pc: " + pc + " exec: ");
                         u.dump(ir);
                     }
 
@@ -278,7 +284,7 @@ public class Sistema {
                                 int deslocamento = reg[ir.ra] % tFrame;
                                 isOnMem(pcb, pag);
                                 
-                                System.out.println("rb = " + reg[ir.rb]);
+                                System.out.println("rb = " + ir.rb);
 
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
 								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
@@ -464,6 +470,9 @@ public class Sistema {
                             irpt = Interrupts.intInstrucaoInvalida;
                             break;
                     }
+
+
+                    System.out.println("#################################################################");
                 }
                 // --------------------------------------------------------------------------------------------------
                 // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
@@ -483,7 +492,6 @@ public class Sistema {
                     break;
 				}
 
-                
             } // FIM DO CICLO DE UMA INSTRUÇÃO
             
             //adiciona pagina em frameOrder
@@ -491,6 +499,8 @@ public class Sistema {
 			pcb.pcState = pc;
 			pcb.regState = reg;
             System.out.println(pcb);
+
+
             return fimCiclo;
         }
     }
@@ -755,13 +765,13 @@ public class Sistema {
 
         // dump da memória
         public void dump(Word w) { // funcoes de DUMP nao existem em hardware - colocadas aqui para facilidade
-            System.out.print("[ ");
+            System.out.print("[opc: ");
             System.out.print(w.opc);
-            System.out.print(", ");
+            System.out.print(", ra: ");
             System.out.print(w.ra);
-            System.out.print(", ");
+            System.out.print(", rb: ");
             System.out.print(w.rb);
-            System.out.print(", ");
+            System.out.print(", p: ");
             System.out.print(w.p);
             System.out.println("  ] ");
         }
