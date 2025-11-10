@@ -153,13 +153,13 @@ public class Sistema {
                 if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
                 irpt = Interrupts.pageFault;
 
-                so.gerenteMem.alocaUm(pcb, pag);
                 so.utils.loadPage(pcb.id, pag);
                 
                 return false;
             }
             else if(!pcb.onMemory[pag]){
                 if(debug) {System.out.println("Página " + pag + " esta em disco");}
+                System.out.println(ir.rb);
                 so.utils.loadPageFromDisk(pcb.id, pag);
 
                 if(debug) {System.out.println("===================================================");}
@@ -221,11 +221,22 @@ public class Sistema {
 				// FASE DE FETCH
                 int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
-                isOnMem(pcb, pagAtual);
+                
+                if(!isOnMem(pcb, pagAtual)) {
+                    cpuStop = true;
+                    fimCiclo = 3;
+                    break;
+                }
+
+                so.posReservadas[tabPag[pagAtual]] = true; //reserva o frame que ta sendo usado
 
                 if(legal(pc, tabPag)) { // pc valido
-                    ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+                    Word aux = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
+                    ir.opc = aux.opc;
+                    ir.ra = aux.ra;
+                    ir.rb = aux.rb;
+                    ir.p = aux.p;
 
                     if(debug) {
                         System.out.println(pcb);
@@ -257,7 +268,12 @@ public class Sistema {
                             if (legal(ir.p, tabPag)) {
                                 int pag = ir.p / tFrame;
                                 int deslocamento = ir.p % tFrame;
-                                isOnMem(pcb, pag);
+                                if(!isOnMem(pcb, pag)) {
+                                    cpuStop = true;
+                                    fimCiclo = 3;
+                                    break;
+                                }
+
                                 reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
                                 pc++;
                             }
@@ -266,7 +282,12 @@ public class Sistema {
                             if (legal(reg[ir.rb], tabPag)) {
                                 int pag = reg[ir.rb] / tFrame;
                                 int deslocamento = reg[ir.rb] % tFrame;
-                                isOnMem(pcb, pag);
+                                if(!isOnMem(pcb, pag)) {
+                                    cpuStop = true;
+                                    fimCiclo = 3;
+                                    break;
+                                }
+
                                 reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
                                 pc++;
                             }
@@ -275,7 +296,12 @@ public class Sistema {
                             if (legal(ir.p, tabPag)) {
                                 int pag = ir.p / tFrame;
                                 int deslocamento = ir.p % tFrame;
-                                isOnMem(pcb, pag);
+                                if(!isOnMem(pcb, pag)) {
+                                    cpuStop = true;
+                                    fimCiclo = 3;
+                                    break;
+                                }
+
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
                                 m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.ra];
                                 pc++;
@@ -289,8 +315,15 @@ public class Sistema {
                             if (legal(reg[ir.ra], tabPag)) {
                                 int pag = reg[ir.ra] / tFrame;
                                 int deslocamento = reg[ir.ra] % tFrame;
-                                isOnMem(pcb, pag);
-                                
+
+                                System.out.println("rb = " + ir.rb);
+                                if(!isOnMem(pcb, pag)) {
+                                    cpuStop = true;
+                                    fimCiclo = 3;
+                                    break;
+                                }
+                                System.out.println("rb = " + ir.rb);
+
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
 								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
 								pc++;
@@ -417,31 +450,9 @@ public class Sistema {
                             break;
 
                         // Chamadas de sistema
-                        case SYSCALL:
-                            sysCall.handle(id, tabPag); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
-                            // temos IO
-                            pc++;
-                            pcb.pcState = pc;
-			                pcb.regState = reg;
-                            fimCiclo = 2;
-                            cpuStop = true; //ao fazer SYSCALL para IO precisa parar a CPU e escalonar outro processo
-                            break;
-
-                        case STOP: // por enquanto, para execucao
-                            sysCall.stop();
-                            cpuStop = true;
-                            so.gerenteProg.desalocaProcesso(pcb.id);
-                            fimCiclo = 0;
-                            break;
-
-                        // Inexistente
-                        default:
-                            irpt = Interrupts.intInstrucaoInvalida;
-                            break;
-                    }
-
-
                 }
+
+                so.posReservadas[tabPag[pagAtual]] = false; //reserva o frame que ta sendo usado
                 // --------------------------------------------------------------------------------------------------
                 // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
                 if (irpt != Interrupts.noInterrupt) { // existe interrupção
@@ -460,7 +471,10 @@ public class Sistema {
                     break;
 				}
 
+                
+
             } // FIM DO CICLO DE UMA INSTRUÇÃO
+            
             
             //adiciona pagina em frameOrder
 
@@ -569,6 +583,7 @@ public class Sistema {
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
+            
         }
 
         public void handle(Interrupts irpt, PCB pcb) {
@@ -650,6 +665,7 @@ public class Sistema {
 
         private void loadPage(int procID, int page){ // carrega a página p do processo procID na memoria
             PCB proc = so.getProcesso(procID);
+            so.gerenteMem.alocaUm(pcb, pag);
             int[] tabPag = proc.tabelaPag;
             Word[] m = hw.mem.pos;
             Word[] p = progs.retrieveProgram(proc.name);
@@ -696,7 +712,9 @@ public class Sistema {
             Word[] m = hw.mem.pos;
             Word[] m2 = hw.memSec.pos;
             int diskFrame = tabPag[page] * so.tamFrame;
+            System.out.println("antes de alocar: " + hw.cpu.ir.rb);
             so.gerenteMem.alocaUm(proc, page);
+            System.out.println("dps de alocar: " + hw.cpu.ir.rb);
             int memFrame = tabPag[page] * so.tamFrame;
 
             for (int i = 0; i < so.tamFrame; i++) {
@@ -705,6 +723,7 @@ public class Sistema {
                 m[memFrame + i].rb = m2[diskFrame + i].rb;
                 m[memFrame + i].p = m2[diskFrame + i].p;
             }
+            System.out.println("dps de alocar tudo: " + hw.cpu.ir.rb);
             so.posOcupadasSec[diskFrame] = false;
         }
 
@@ -889,7 +908,13 @@ public class Sistema {
 
         boolean alocaUm(PCB pcb, int pagN){
             if(so.qtdFramesDisp == 0){ //nao tem mais frame disponivel, troca pagina
+
                 int frame = frameOrder.remove();
+                while(so.posReservadas[frame]){
+                    frameOrder.add(frame);
+                    frame = frameOrder.remove();
+                }
+
                 int oldProcess = so.posOcupadas[frame]; //pega o id do processo que ta ocupando esse frame
                 int oldPageRef = so.pagRef[frame]; //pega a pagina que ta nesse frame
 
@@ -1030,6 +1055,7 @@ public class Sistema {
         public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
         public int contProcessos; 		// conta a qtd de processos
         public int[] posOcupadas; 	// guarda os frames disponiveis (-1) e ocupados (nro processo)
+        public boolean[] posReservadas; 	// guarda os frames reservados (true) e nao reservados (false)
         public boolean[] posOcupadasSec; 	// guarda os frames disponiveis (-1) e ocupados (nro processo)
         public int[] pagRef;        // qual pag do programa estre frame representa
         public ThreadMenu tMenu; 
@@ -1048,6 +1074,7 @@ public class Sistema {
             listaDeProcessos = new PCB[qtdFramesDisp]; // o maximo de processos seria a qtd de paginas na memoria
             contProcessos = 0;
             posOcupadas = new int[qtdFramesDisp];
+            posReservadas = new boolean[qtdFramesDisp];
             //posOcupadasSec = new boolean[qtdFramesDisp * 2];
             posOcupadasSec = new boolean[128];
 
