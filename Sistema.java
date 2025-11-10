@@ -148,7 +148,7 @@ public class Sistema {
             int[] tabPag = pcb.tabelaPag;
             if(tabPag[pag] < 0) {
                 System.out.println("Página " + pag + " fora de mem");
-                irpt= Interrupts.pageFault;
+                irpt = Interrupts.pageFault;
                 so.gerenteMem.alocaUm(pcb, pag);
                 so.utils.loadPage(pcb.id, pag);
                 return false;
@@ -193,6 +193,10 @@ public class Sistema {
             so.atualizaPtrProcess(id); // atualiza o ptr que diz qual processo esta rodando
             // (aponta pra pos na lista de processos do S.O.)
 
+            //checar se pagina ta em frameOrder
+            //se estiver, tira ele da lista
+            //se nao estiver, da pageFault
+            
             cpuStop = false;
             int fimCiclo = 1; //1 - terminou ciclo normal; 
                               //2 - bloqueado por IO; 
@@ -262,10 +266,10 @@ public class Sistema {
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
                                 m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.ra];
                                 pc++;
-                                if (debug) {
-                                    System.out.print("                                  ");
-                                    u.dump(ir.p, ir.p + 1);
-                                }
+                                //if (debug) {
+                                //    System.out.print("                                  ");
+                                //    u.dump(ir.p, ir.p + 1);
+                                //}
                             }
                             break;
                         case STX: // [Rd] ←Rs
@@ -273,6 +277,9 @@ public class Sistema {
                                 int pag = reg[ir.ra] / tFrame;
                                 int deslocamento = reg[ir.ra] % tFrame;
                                 isOnMem(pcb, pag);
+                                
+                                System.out.println("rb = " + reg[ir.rb]);
+
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
 								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
 								pc++;
@@ -312,15 +319,26 @@ public class Sistema {
 
                         // Instrucoes JUMP
                         case JMP: // PC <- k
-							if(legal(ir.p, tabPag)) {pc = ir.p;}
+							if(legal(ir.p, tabPag)) {
+                                int pag = ir.p / tFrame;
+                                isOnMem(pcb, pag);
+
+                                pc = ir.p;
+                            }
                             break;
                         case JMPIM: // PC <- [A]
 							if(legal(m[ir.p].p, tabPag)){
+                                int pag = m[ir.p].p / tFrame;
+                                isOnMem(pcb, pag);
+
                             	pc = m[ir.p].p;
 							}	
                             break;
                         case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
+                                int pag = reg[ir.ra] / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -328,6 +346,9 @@ public class Sistema {
                             break;
                         case JMPIGK: // If RC > 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.rb] > 0) {
+                                int pag = ir.p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -335,6 +356,9 @@ public class Sistema {
                             break;
                         case JMPILK: // If RC < 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.rb] < 0) {
+                                int pag = ir.p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -342,6 +366,9 @@ public class Sistema {
                             break;
                         case JMPIEK: // If RC = 0 then PC <- k else PC++
                             if (legal(ir.p, tabPag) &&reg[ir.rb] == 0) {
+                                int pag = ir.p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -349,6 +376,9 @@ public class Sistema {
                             break;
                         case JMPIL: // if Rc < 0 then PC <- Rs Else PC <- PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] < 0) {
+                                int pag = reg[ir.ra] / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -356,6 +386,9 @@ public class Sistema {
                             break;
                         case JMPIE: // If Rc = 0 Then PC <- Rs Else PC <- PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] == 0) {
+                                int pag = reg[ir.ra] / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = reg[ir.ra];
                             } else {
                                 pc++;
@@ -363,6 +396,9 @@ public class Sistema {
                             break;
                         case JMPIGM: // If RC > 0 then PC <- [A] else PC++
                             if (legal(ir.p, tabPag)) {
+                                int pag = m[ir.p].p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 if (reg[ir.rb] > 0) {
                                     pc = m[ir.p].p;
                                 } else {
@@ -372,6 +408,9 @@ public class Sistema {
                             break;
                         case JMPILM: // If RC < 0 then PC <- k else PC++
                             if (legal(m[ir.p].p, tabPag) && reg[ir.rb] < 0) {
+                                int pag = m[ir.p].p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
@@ -379,6 +418,9 @@ public class Sistema {
                             break;
                         case JMPIEM: // If RC = 0 then PC <- k else PC++
                             if (legal(m[ir.p].p, tabPag) && reg[ir.rb] == 0) {
+                                int pag = m[ir.p].p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = m[ir.p].p;
                             } else {
                                 pc++;
@@ -386,6 +428,9 @@ public class Sistema {
                             break;
                         case JMPIGT: // If RS>RC then PC <- k else PC++
                             if (legal(ir.p, tabPag) && reg[ir.ra] > reg[ir.rb]) {
+                                int pag = ir.p / tFrame;
+                                isOnMem(pcb, pag);
+
                                 pc = ir.p;
                             } else {
                                 pc++;
@@ -440,10 +485,12 @@ public class Sistema {
 
                 
             } // FIM DO CICLO DE UMA INSTRUÇÃO
+            
+            //adiciona pagina em frameOrder
+
 			pcb.pcState = pc;
 			pcb.regState = reg;
             System.out.println(pcb);
-            //so.gerenteProg.desalocaProcesso(so.gerenteProg.novoIdProcesso); //inserido aqui por finalidade de teste da funcao REMOVER DEPOIS
             return fimCiclo;
         }
     }
@@ -574,6 +621,10 @@ public class Sistema {
         }
 
         public void handle(int id, int[] pcb) { // chamada de sistema 
+            //deve-se perguntar se a posicao de memoria dada por reg[9] esta carregada
+            //se nao ta, da pageFault e adiciona a pagina a lista de paginas protegidas
+            //se estiver, adiciona pagina a lista de paginas protegidas
+
             // suporta somente IO, com parametros 
             // reg[8] = in ou out e reg[9] endereco do inteiro
             System.out.println("SYSCALL pars:  " + hw.cpu.reg[8] + " / " + hw.cpu.reg[9]);
@@ -624,10 +675,12 @@ public class Sistema {
             int[] tabPag = proc.tabelaPag;
             Word[] m = hw.mem.pos;
             Word[] p = progs.retrieveProgram(proc.name);
-            int frame = tabPag[page] * so.tamFrame;
+            int frame = tabPag[page] * so.tamFrame; //NAO TERIA QUE ALOCAR NA PROXIMA POS LIVRE?
             int progPage = page * so.tamFrame;
+            System.out.println("frame = " + frame + " | progPage = " + progPage);
 
-            for (int i = 0; i < so.tamFrame; i++) {
+
+            for (int i = 0; i < so.tamFrame; i++) { //como faz pra carregar pagina que nao esta em memoria?****
                 System.out.println("carregando inst " + (progPage + i) );
 
                 if (progPage + i >= p.length) {
@@ -821,13 +874,13 @@ public class Sistema {
         public int pcState;
 
         public PCB(int _id, int[] _tabelaPag, String _name) {
-
             id = _id;
             tabelaPag = _tabelaPag;
             onMemory = new boolean[tabelaPag.length];
             name = _name;
             regState = new int[10];
             pcState = 0;
+
             for (int i = 0; i < _tabelaPag.length; i++) {
                 tabelaPag[i] = -1;
             }
@@ -853,21 +906,24 @@ public class Sistema {
     }
 
     public class GM {
-
         LinkedList<Integer> frameOrder = new LinkedList<>();
 
         boolean alocaUm(PCB pcb, int pagN){
-            if(so.qtdFramesDisp == 0){
+            if(so.qtdFramesDisp == 0){ //nao tem mais frame disponivel, troca pagina
                 int frame = frameOrder.remove();
-                int oldProcess = so.posOcupadas[frame];
-                int oldPageRef = so.pagRef[frame];
-                so.utils.loadPageToDisk(oldProcess, oldPageRef);
+                int oldProcess = so.posOcupadas[frame]; //pega o id do processo que ta ocupando esse frame
+                int oldPageRef = so.pagRef[frame]; //pega a pagina que ta nesse frame
+
+                so.utils.loadPageToDisk(oldProcess, oldPageRef); //salva a pagina que ta no frame no disco
+
                 pcb.tabelaPag[pagN] = frame;
                 pcb.onMemory[pagN] = true;
+
                 so.posOcupadas[frame] = pcb.id;
                 so.pagRef[frame] = pagN;
                 frameOrder.add(frame);
-                System.out.println("Frame " + frame + "trocou de dono de " + oldProcess + " pra " + pcb.id);
+
+                System.out.println("Frame " + frame + " trocou de dono de " + oldProcess + " pra " + pcb.id);
                 return true;
             }
 
@@ -877,10 +933,13 @@ public class Sistema {
                 if (so.posOcupadas[i] == 0) { // se o frame nao esta ocupado, coloca o numero do frame alocado (i/so.tamFrame)
                     pcb.tabelaPag[pagN] = i;
                     pcb.onMemory[pagN] = true;
+
                     so.posOcupadas[i] = pcb.id; //ocupa pos na memoria
                     so.pagRef[i] = pagN;
                     so.qtdFramesDisp--;
+
                     frameOrder.add(i);
+
                     System.out.println("pagina " + pagN + " no frame " + i);
                     return true;
                 }
@@ -889,14 +948,15 @@ public class Sistema {
         }
 
         boolean alocaUmOnDisc(PCB pcb, int pagN){
-
             int qtdPag = so.posOcupadasSec.length;
 
             for (int i = 0; i < qtdPag; i++) { // "i" representa a primeira linha do frame atual
                 if (so.posOcupadasSec[i] == false) { // se o frame nao esta ocupado, coloca o numero do frame alocado (i/so.tamFrame)
                     pcb.tabelaPag[pagN] = i;
                     pcb.onMemory[pagN] = false;
+
                     so.posOcupadasSec[i] = true; //ocupa pos na memoria
+
                     return true;
                 }
             }
@@ -1009,7 +1069,8 @@ public class Sistema {
             listaDeProcessos = new PCB[qtdFramesDisp]; // o maximo de processos seria a qtd de paginas na memoria
             contProcessos = 0;
             posOcupadas = new int[qtdFramesDisp];
-            posOcupadasSec = new boolean[qtdFramesDisp * 2];
+            //posOcupadasSec = new boolean[qtdFramesDisp * 2];
+            posOcupadasSec = new boolean[100];
 
             pagRef = new int[qtdFramesDisp];
             ptrProcessRunning = -1;
@@ -1112,7 +1173,7 @@ public class Sistema {
     // -------------------------------------------------------------------------------------------------------
     // ------------------- instancia e testa sistema
     public static void main(String args[]) {
-        Sistema s = new Sistema(1024, 8);
+        Sistema s = new Sistema(16, 8);
         s.run();
     }
 
