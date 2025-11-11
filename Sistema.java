@@ -99,7 +99,6 @@ public class Sistema {
         // nas proximas versoes isto pode modificar
 
         private Word[] m;   // m é o array de memória "física", CPU tem uma ref a m para acessar
-        private Word[] m2; //   memoria secundaria
 
         private InterruptHandling ih;    // significa desvio para rotinas de tratamento de Int - se int ligada, desvia
         private SysCallHandling sysCall; // significa desvio para tratamento de chamadas de sistema
@@ -111,11 +110,10 @@ public class Sistema {
         private boolean debug;      // se true entao mostra cada instrucao em execucao
         private Utilities u;        // para debug (dump)
 
-        public CPU(Memory _mem, Memory _memSec, boolean _debug) { // ref a MEMORIA passada na criacao da CPU
+        public CPU(Memory _mem, boolean _debug) { // ref a MEMORIA passada na criacao da CPU
             maxInt = 32767;            // capacidade de representacao modelada
             minInt = -32767;           // se exceder deve gerar interrupcao de overflow
             m = _mem.pos;              // usa o atributo 'm' para acessar a memoria, só para ficar mais pratico
-            m2 = _memSec.pos;
             reg = new int[10];         // aloca o espaço dos registradores - regs 8 e 9 usados somente para IO
             debug = _debug;            // se true, print da instrucao em execucao
 
@@ -153,14 +151,18 @@ public class Sistema {
                 if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
                 irpt = Interrupts.pageFault;
 
+                so.gerenteMem.alocaUm(pcb, pag);
                 so.utils.loadPage(pcb.id, pag);
                 
                 return false;
             }
             else if(!pcb.onMemory[pag]){
                 if(debug) {System.out.println("Página " + pag + " esta em disco");}
-                System.out.println(ir.rb);
-                so.utils.loadPageFromDisk(pcb.id, pag);
+                
+                int diskFrame = tabPag[pag];
+                so.gerenteMem.alocaUm(pcb, pag);
+                int memFrame = tabPag[pag];
+                so.utils.loadPageFromDisk(diskFrame, memFrame);
 
                 if(debug) {System.out.println("===================================================");}
                 return false;
@@ -211,32 +213,27 @@ public class Sistema {
             
             cpuStop = false;
             int fimCiclo = 1; //1 - terminou ciclo normal; 
-                              //2 - bloqueado por IO; 
-                              //3 - bloqueado por PageFault
-                              //0 - terminou execucao
+                            //2 - bloqueado por IO; 
+                            //3 - bloqueado por PageFault
+                            //0 - terminou execucao
 
-			int instCount = 0;
+            int instCount = 0;
             while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
                 // --------------------------------------------------------------------------------------------------
-				// FASE DE FETCH
+                // FASE DE FETCH
                 int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                 int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
-                
+
                 if(!isOnMem(pcb, pagAtual)) {
                     cpuStop = true;
                     fimCiclo = 3;
                     break;
                 }
 
-                so.posReservadas[tabPag[pagAtual]] = true; //reserva o frame que ta sendo usado
 
                 if(legal(pc, tabPag)) { // pc valido
-                    Word aux = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+                    ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
-                    ir.opc = aux.opc;
-                    ir.ra = aux.ra;
-                    ir.rb = aux.rb;
-                    ir.p = aux.p;
 
                     if(debug) {
                         System.out.println(pcb);
@@ -268,6 +265,7 @@ public class Sistema {
                             if (legal(ir.p, tabPag)) {
                                 int pag = ir.p / tFrame;
                                 int deslocamento = ir.p % tFrame;
+
                                 if(!isOnMem(pcb, pag)) {
                                     cpuStop = true;
                                     fimCiclo = 3;
@@ -296,6 +294,7 @@ public class Sistema {
                             if (legal(ir.p, tabPag)) {
                                 int pag = ir.p / tFrame;
                                 int deslocamento = ir.p % tFrame;
+
                                 if(!isOnMem(pcb, pag)) {
                                     cpuStop = true;
                                     fimCiclo = 3;
@@ -315,18 +314,16 @@ public class Sistema {
                             if (legal(reg[ir.ra], tabPag)) {
                                 int pag = reg[ir.ra] / tFrame;
                                 int deslocamento = reg[ir.ra] % tFrame;
-
-                                System.out.println("rb = " + ir.rb);
                                 if(!isOnMem(pcb, pag)) {
                                     cpuStop = true;
                                     fimCiclo = 3;
                                     break;
                                 }
-                                System.out.println("rb = " + ir.rb);
 
+                                
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
-								m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
-								pc++;
+                                m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
+                                pc++;
                             }
                             ;
                             break;
@@ -363,14 +360,14 @@ public class Sistema {
 
                         // Instrucoes JUMP
                         case JMP: // PC <- k
-							if(legal(ir.p, tabPag)) {
+                            if(legal(ir.p, tabPag)) {
                                 pc = ir.p;
                             }
                             break;
                         case JMPIM: // PC <- [A]
-							if(legal(m[ir.p].p, tabPag)){
-                            	pc = m[ir.p].p;
-							}	
+                            if(legal(m[ir.p].p, tabPag)){
+                                pc = m[ir.p].p;
+                            }	
                             break;
                         case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
                             if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
@@ -450,9 +447,31 @@ public class Sistema {
                             break;
 
                         // Chamadas de sistema
-                }
+                        case SYSCALL:
+                            sysCall.handle(id, tabPag); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
+                            // temos IO
+                            pc++;
+                            pcb.pcState = pc;
+                            pcb.regState = reg;
+                            fimCiclo = 2;
+                            cpuStop = true; //ao fazer SYSCALL para IO precisa parar a CPU e escalonar outro processo
+                            break;
 
-                so.posReservadas[tabPag[pagAtual]] = false; //reserva o frame que ta sendo usado
+                        case STOP: // por enquanto, para execucao
+                            sysCall.stop();
+                            cpuStop = true;
+                            so.gerenteProg.desalocaProcesso(pcb.id);
+                            fimCiclo = 0;
+                            break;
+
+                        // Inexistente
+                        default:
+                            irpt = Interrupts.intInstrucaoInvalida;
+                            break;
+                    }
+
+
+                }
                 // --------------------------------------------------------------------------------------------------
                 // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
                 if (irpt != Interrupts.noInterrupt) { // existe interrupção
@@ -464,22 +483,19 @@ public class Sistema {
                 //    
                 //    System.out.println("Interrupcao tratada");
                 //}
-				instCount++;
+                instCount++;
                 System.out.println(instCount + "---" + instMax);
-				if(instCount==instMax) {
-					cpuStop = true;
+                if(instCount==instMax) {
+                    cpuStop = true;
                     break;
-				}
-
-                
+                }
 
             } // FIM DO CICLO DE UMA INSTRUÇÃO
             
-            
             //adiciona pagina em frameOrder
 
-			pcb.pcState = pc;
-			pcb.regState = reg;
+            pcb.pcState = pc;
+            pcb.regState = reg;
 
             System.out.println("#################################################################");
             return fimCiclo;
@@ -488,6 +504,20 @@ public class Sistema {
     // ------------------ C P U - fim
     // -----------------------------------------------------------------------
     // ------------------------------------------------------------------------------------------------------
+
+    public class DispositivoPF extends Thread{
+
+        @Override
+        public void run() {
+            System.out.println("Dispositivo PF iniciado");
+
+            while(!turnOff) {
+
+            }
+
+            System.out.println("Dispositivo desligado");
+        }
+    }
 
     public class DispositivoIO extends Thread{
 
@@ -545,7 +575,7 @@ public class Sistema {
             //SUBSTITUIR VALORES POR TAM MEM
             mem = new Memory(16);
             memSec = new Memory(1024);
-            cpu = new CPU(mem, memSec, true); // true liga debug
+            cpu = new CPU(mem, true); // true liga debug
         }
 
         public void startIO() {
@@ -583,12 +613,12 @@ public class Sistema {
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
-            
         }
 
         public void handle(Interrupts irpt, PCB pcb) {
             if(irpt == Interrupts.pageFault) {
-            
+                
+
                 return;
             }
 
@@ -665,7 +695,6 @@ public class Sistema {
 
         private void loadPage(int procID, int page){ // carrega a página p do processo procID na memoria
             PCB proc = so.getProcesso(procID);
-            so.gerenteMem.alocaUm(pcb, pag);
             int[] tabPag = proc.tabelaPag;
             Word[] m = hw.mem.pos;
             Word[] p = progs.retrieveProgram(proc.name);
@@ -706,16 +735,11 @@ public class Sistema {
         }
 
 
-        private void loadPageFromDisk(int procID, int page){
-            PCB proc = so.getProcesso(procID);
-            int[] tabPag = proc.tabelaPag;
+        private void loadPageFromDisk(int diskFrame, int memFrame){
             Word[] m = hw.mem.pos;
             Word[] m2 = hw.memSec.pos;
-            int diskFrame = tabPag[page] * so.tamFrame;
-            System.out.println("antes de alocar: " + hw.cpu.ir.rb);
-            so.gerenteMem.alocaUm(proc, page);
-            System.out.println("dps de alocar: " + hw.cpu.ir.rb);
-            int memFrame = tabPag[page] * so.tamFrame;
+            diskFrame *= so.tamFrame;
+            memFrame *= so.tamFrame;
 
             for (int i = 0; i < so.tamFrame; i++) {
                 m[memFrame + i].opc = m2[diskFrame + i].opc;
@@ -723,11 +747,10 @@ public class Sistema {
                 m[memFrame + i].rb = m2[diskFrame + i].rb;
                 m[memFrame + i].p = m2[diskFrame + i].p;
             }
-            System.out.println("dps de alocar tudo: " + hw.cpu.ir.rb);
-            so.posOcupadasSec[diskFrame] = false;
+            so.posOcupadasSec[diskFrame / so.tamFrame] = false;
         }
 
-         /*Word[] m = hw.mem.pos; // TROCAR M POR MEMO DO DISCO
+        /*Word[] m = hw.mem.pos; // TROCAR M POR MEMO DO DISCO
             int contLinha = 0;
 
             int[] tabPag = so.getProcesso(so.gerenteProg.novoIdProcesso).tabelaPag; // pega a tabPag do pcb na lista de processos do SO
@@ -908,12 +931,8 @@ public class Sistema {
 
         boolean alocaUm(PCB pcb, int pagN){
             if(so.qtdFramesDisp == 0){ //nao tem mais frame disponivel, troca pagina
-
+                //LOCK
                 int frame = frameOrder.remove();
-                while(so.posReservadas[frame]){
-                    frameOrder.add(frame);
-                    frame = frameOrder.remove();
-                }
 
                 int oldProcess = so.posOcupadas[frame]; //pega o id do processo que ta ocupando esse frame
                 int oldPageRef = so.pagRef[frame]; //pega a pagina que ta nesse frame
@@ -1030,7 +1049,7 @@ public class Sistema {
 
         boolean desalocaProcesso(int id) {
             for (PCB pcb : so.listaDeProcessos) { 			// procura por todos os pcb
-				if(pcb != null && pcb.id == id) {			// se achou...
+                if(pcb != null && pcb.id == id) {			// se achou...
                     so.gerenteMem.desaloca(pcb.tabelaPag, pcb.onMemory); 	// ...tira da memoria...
                     so.removeListProcesso(id); 				// ...e tira da lista de processos do SO
 
@@ -1055,7 +1074,6 @@ public class Sistema {
         public int qtdFramesDisp;		// guarda qtd de frames disponiveis para rapidamente checar se um processo cabe
         public int contProcessos; 		// conta a qtd de processos
         public int[] posOcupadas; 	// guarda os frames disponiveis (-1) e ocupados (nro processo)
-        public boolean[] posReservadas; 	// guarda os frames reservados (true) e nao reservados (false)
         public boolean[] posOcupadasSec; 	// guarda os frames disponiveis (-1) e ocupados (nro processo)
         public int[] pagRef;        // qual pag do programa estre frame representa
         public ThreadMenu tMenu; 
@@ -1074,7 +1092,6 @@ public class Sistema {
             listaDeProcessos = new PCB[qtdFramesDisp]; // o maximo de processos seria a qtd de paginas na memoria
             contProcessos = 0;
             posOcupadas = new int[qtdFramesDisp];
-            posReservadas = new boolean[qtdFramesDisp];
             //posOcupadasSec = new boolean[qtdFramesDisp * 2];
             posOcupadasSec = new boolean[128];
 
@@ -1117,7 +1134,7 @@ public class Sistema {
                 if(pcb != null) {
                     //System.out.println("PCB " + pcb.id);
                     if(pcb.id == id) {
-                    	return pcb;
+                        return pcb;
                     }
                 }
             }
@@ -1128,7 +1145,7 @@ public class Sistema {
         private boolean removeListProcesso(int id) {
             for(int i = 0; i < listaDeProcessos.length - 1; i++) {
                 if(listaDeProcessos[i] != null && listaDeProcessos[i].id == id) {
-                	listaDeProcessos[i] = null;
+                    listaDeProcessos[i] = null;
                     contProcessos--;
                     return true;
                 }
@@ -1163,7 +1180,7 @@ public class Sistema {
             System.err.println("A thread principal foi interrompida enquanto esperava.");
             Thread.currentThread().interrupt();  // Restaura o estado de interrupção
         }
-	}
+    }
         // so.utils.loadAndExec(progs.retrieveProgram("fatorial"));
         // fibonacci10,
         // fibonacci10v2,
@@ -1199,42 +1216,42 @@ public class Sistema {
             boolean execAll = false;
 
             String help = "new <nomeDePrograma> - cria um processo na memória. Pede ao GM para alocar memória. Cria PCB, seta partição\n" + 
-                                                 "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
-                                                 "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
-                          "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
-                          "ps - lista todos processos existentes\n" +
-                          "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
-                          "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
-                          "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
-                          "execAll - executa todos os processos prontos\n" +
-                          "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
-                          "traceOff - desliga o modo acima\n" +
-                          "IO - responde chamadas de entrada e saida feitas por programas\n" +
-                          "help - lista as instruções\n" +
-                          "exit - sai do sistema";
+                                                "ou tabela de páginas do processo no PCB, etc. coloca processo em uma lista de processos\n" +
+                                                "(prontos). Esta chamada retorna um identificador único do processo no sistema (ex.: 1, 2, 3, …)\n" +
+                        "rm <id> - retira o processo id do sistema, tenha ele executado ou não\n" +
+                        "ps - lista todos processos existentes\n" +
+                        "dump <id> - lista o conteúdo do PCB e o conteúdo da memória do processo com id\n" +
+                        "dumpM <inicio, fim> - lista a memória entre posições início e fim, independente do processo\n" +
+                        "exec <id> - executa o processo com id fornecido. se não houver processo, retorna erro.\n" + 
+                        "execAll - executa todos os processos prontos\n" +
+                        "traceOn - liga modo de execução em que CPU print cada instrução executada\n" +
+                        "traceOff - desliga o modo acima\n" +
+                        "IO - responde chamadas de entrada e saida feitas por programas\n" +
+                        "help - lista as instruções\n" +
+                        "exit - sai do sistema";
 
             System.out.println(help);
             Scanner in = new Scanner(System.in);
 
             while (!exit){
-            	String[] input = {""};
+                String[] input = {""};
 
-		    	if(in.hasNextLine()) input = in.nextLine().split(" ");
+                if(in.hasNextLine()) input = in.nextLine().split(" ");
 
-		    	switch(input[0]){
+                switch(input[0]){
                     case "new":
-                    	if(input.length == 1) {
-                    		System.out.println("Programa não declarado");
+                        if(input.length == 1) {
+                            System.out.println("Programa não declarado");
 
-                    	    break;
-                    	}
+                            break;
+                        }
 
-                    	int program = so.utils.loadProgram(input[1]);
+                        int program = so.utils.loadProgram(input[1]);
                     
-		    			if(program == -1) {System.out.println("Programa nao encontrado.");}
-                    	else {System.out.println("Programa carregado com ID "+ program);}
+                        if(program == -1) {System.out.println("Programa nao encontrado.");}
+                        else {System.out.println("Programa carregado com ID "+ program);}
 
-                    	break;
+                        break;
 
                     case "rm":
                         if(input.length == 1) {
@@ -1245,7 +1262,7 @@ public class Sistema {
 
                         boolean found = so.gerenteProg.desalocaProcesso(Integer.parseInt(input[1]));
 
-		    			if(!found) {System.out.println("Processo nao encontrado.");}
+                        if(!found) {System.out.println("Processo nao encontrado.");}
                         else {System.out.println("Processo descarregado.");}
 
                         break;
@@ -1254,7 +1271,7 @@ public class Sistema {
                         PCB[] processos = so.listaDeProcessos;
                         for(PCB pcb : processos) {if(pcb != null) {System.out.println(pcb.id);}}
 
-		    			break;
+                        break;
 
                     case "dump":
                         if (input.length == 1) {
@@ -1282,7 +1299,7 @@ public class Sistema {
                             counter++;
                         }
 
-		    			break;
+                        break;
                     
                     case "dumpM":
                         if(input.length<3){
@@ -1293,7 +1310,7 @@ public class Sistema {
 
                         so.utils.dump(Integer.parseInt(input[1]),Integer.parseInt(input[2]));
 
-		    			break;
+                        break;
 
                     case "exec":
                         if(execAll) {
@@ -1329,7 +1346,7 @@ public class Sistema {
                         break;
                 
                     case "-":
-                       System.out.println("irptIO = " + hw.cpu.irptIO);
+                    System.out.println("irptIO = " + hw.cpu.irptIO);
                         break;
                     case "IO":
                         if(IOReq.isEmpty()) {
@@ -1382,7 +1399,7 @@ public class Sistema {
                             System.out.println("execAll está em execução. Aguarde a conclusão...");
                         } else {
                             so.tExecAll = new ThreadExecAll(); // se acabou, cria nova instancia
-                                                               // (aparentemente nao eh possivel utilizar uma mesma thread)
+                                                            // (aparentemente nao eh possivel utilizar uma mesma thread)
                             so.tExecAll.start(); //inicia nova execucao
                         }
 
