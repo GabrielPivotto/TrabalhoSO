@@ -33,6 +33,10 @@ public class Sistema {
     public Queue<Integer> IOResp = new LinkedList<>(); 
     public Semaphore semIO = new Semaphore(0);
 
+    public Queue<PageFaultRequest> pageFaultReq = new LinkedList<>();
+    public Semaphore semPFTerminado = new Semaphore(0);
+    public Queue<Interrupts> pageFaultResp = new LinkedList<>();
+
     // -------------------------------------------------------------------------------------------------------
     // --------------------- H A R D W A R E - definicoes de HW
     // ----------------------------------------------
@@ -142,7 +146,7 @@ public class Sistema {
             }
         }
 
-        private boolean isOnMem(PCB pcb, int pag){
+        private boolean isOnMem(PCB pcb, int pag) {
             if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
 
             int[] tabPag = pcb.tabelaPag;
@@ -152,8 +156,17 @@ public class Sistema {
                 irpt = Interrupts.pageFault;
 
                 so.gerenteMem.alocaUm(pcb, pag);
-                so.utils.loadPage(pcb.id, pag);
-                
+
+                //so.utils.loadPage(pcb.id, pag); //thread desbloqueia quando ve que tem algo na fila
+                //add requisicao de page fault na fila
+                pageFaultReq.add(new PageFaultRequest(pcb.id, pag, "LOAD_PAGE"));
+                //try {
+                //    semPFTerminado.acquire();
+                //} catch (InterruptedException e) {
+                //    e.printStackTrace();
+                //}
+
+                if(debug) {System.out.println("===================================================");}
                 return false;
             }
             else if(!pcb.onMemory[pag]){
@@ -162,7 +175,16 @@ public class Sistema {
                 int diskFrame = tabPag[pag];
                 so.gerenteMem.alocaUm(pcb, pag);
                 int memFrame = tabPag[pag];
-                so.utils.loadPageFromDisk(diskFrame, memFrame);
+
+
+                //so.utils.loadPageFromDisk(diskFrame, memFrame); //thread desbloqueia quando ve que tem algo na fila
+                //add requisicao de page fault na fila
+                pageFaultReq.add(new PageFaultRequest(pcb.id, pag, diskFrame, memFrame, "LOAD_FROM_DISK"));
+                //try {
+                //    semPFTerminado.acquire();
+                //} catch (InterruptedException e) {
+                //    e.printStackTrace();
+                //}
 
                 if(debug) {System.out.println("===================================================");}
                 return false;
@@ -230,8 +252,10 @@ public class Sistema {
                     break;
                 }
 
+                System.out.println(pcb);
 
                 if(legal(pc, tabPag)) { // pc valido
+                    System.out.println("m[tabPag[pagAtual] * tFrame + linhaAtual] = m[" + tabPag[pagAtual] + " * " + tFrame + " + " + linhaAtual + "]");
                     ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                     // resto é dump de debug
 
@@ -314,13 +338,13 @@ public class Sistema {
                             if (legal(reg[ir.ra], tabPag)) {
                                 int pag = reg[ir.ra] / tFrame;
                                 int deslocamento = reg[ir.ra] % tFrame;
+
                                 if(!isOnMem(pcb, pag)) {
                                     cpuStop = true;
                                     fimCiclo = 3;
                                     break;
                                 }
 
-                                
                                 m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
                                 m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
                                 pc++;
@@ -505,6 +529,28 @@ public class Sistema {
     // -----------------------------------------------------------------------
     // ------------------------------------------------------------------------------------------------------
 
+    public class PageFaultRequest {
+        public int procId;
+        public int page;
+        public int diskFrame;  // usado se a página estiver em disco
+        public int memFrame;   // usado para mapear novo frame
+        public String tipo;    // "LOAD_PAGE" ou "LOAD_FROM_DISK"
+
+        public PageFaultRequest(int procId, int page, String tipo) {
+            this.procId = procId;
+            this.page = page;
+            this.tipo = tipo;
+        }
+
+        public PageFaultRequest(int procId, int page, int diskFrame, int memFrame, String tipo) {
+            this.procId = procId;
+            this.page = page;
+            this.diskFrame = diskFrame;
+            this.memFrame = memFrame;
+            this.tipo = tipo;
+        }
+    }
+
     public class DispositivoPF extends Thread{
 
         @Override
@@ -512,7 +558,30 @@ public class Sistema {
             System.out.println("Dispositivo PF iniciado");
 
             while(!turnOff) {
+                while(pageFaultReq.isEmpty()) {
+                    if(turnOff) {break;}
+                }
 
+                PageFaultRequest pf = pageFaultReq.remove();
+                
+                switch(pf.tipo) {
+                    case "LOAD_PAGE":
+                        System.out.println("(DEU LOAD_PAGE)");
+                        so.utils.loadPage(pf.procId, pf.page);
+                        pageFaultResp.add(Interrupts.noInterrupt);
+                        break;
+                    case "LOAD_FROM_DISK":
+                    System.out.println("(DEU LOAD_FROM_DISK)");
+                        so.utils.loadPageFromDisk(pf.diskFrame, pf.memFrame);
+                        pageFaultResp.add(Interrupts.noInterrupt);
+                        break;
+                    case "LOAD_TO_DISK":
+                        System.out.println("(DEU LOAD_TO_DISK)");
+                        so.utils.loadPageToDisk(pf.procId, pf.page);
+                        break;
+                }
+
+                //semPFTerminado.release();
             }
 
             System.out.println("Dispositivo desligado");
@@ -566,19 +635,22 @@ public class Sistema {
     public class HW {
 
         public DispositivoIO io;
+        public DispositivoPF pf;
         public Memory mem;
         public Memory memSec;
         public CPU cpu;
 
         public HW(int tamMem) {
             io = new DispositivoIO();
+            pf = new DispositivoPF();
             //SUBSTITUIR VALORES POR TAM MEM
-            mem = new Memory(16);
+            mem = new Memory(24);
             memSec = new Memory(1024);
             cpu = new CPU(mem, true); // true liga debug
         }
 
         public void startIO() {
+            pf.start();
             io.start();
         }
     }
@@ -698,10 +770,9 @@ public class Sistema {
             int[] tabPag = proc.tabelaPag;
             Word[] m = hw.mem.pos;
             Word[] p = progs.retrieveProgram(proc.name);
-            int frame = tabPag[page] * so.tamFrame; //NAO TERIA QUE ALOCAR NA PROXIMA POS LIVRE?
+            int frame = tabPag[page] * so.tamFrame;
             int progPage = page * so.tamFrame;
             System.out.println("frame = " + frame + " | progPage = " + progPage);
-
 
             for (int i = 0; i < so.tamFrame; i++) { //como faz pra carregar pagina que nao esta em memoria?****
                 System.out.println("carregando inst " + (progPage + i) );
@@ -718,12 +789,13 @@ public class Sistema {
         }
 
         private void loadPageToDisk(int procID, int page){
+            System.out.println("procID = " + procID);
             PCB proc = so.getProcesso(procID);
             int[] tabPag = proc.tabelaPag;
             Word[] m = hw.mem.pos;
             Word[] m2 = hw.memSec.pos;
             int memFrame = tabPag[page] * so.tamFrame;
-            so.gerenteMem.alocaUmOnDisc(proc, page);
+            so.gerenteMem.alocaUmOnDisc(proc, page); 
             int diskFrame = tabPag[page] * so.tamFrame;
 
             for (int i = 0; i < so.tamFrame; i++) {
@@ -733,7 +805,6 @@ public class Sistema {
                 m2[diskFrame + i].p = m[memFrame + i].p;
             }
         }
-
 
         private void loadPageFromDisk(int diskFrame, int memFrame){
             Word[] m = hw.mem.pos;
@@ -747,7 +818,7 @@ public class Sistema {
                 m[memFrame + i].rb = m2[diskFrame + i].rb;
                 m[memFrame + i].p = m2[diskFrame + i].p;
             }
-            so.posOcupadasSec[diskFrame / so.tamFrame] = false;
+            so.posOcupadasSec[diskFrame / so.tamFrame] = false; 
         }
 
         /*Word[] m = hw.mem.pos; // TROCAR M POR MEMO DO DISCO
@@ -839,7 +910,7 @@ public class Sistema {
             }
 
             int currID = -1;
-            while(!ready.isEmpty() || !blocked.isEmpty()) {
+            while(!ready.isEmpty() || !blocked.isEmpty() || !blockedMem.isEmpty()) {
                 //System.out.println("irptIO = " + hw.cpu.irptIO);
 
                 if(hw.cpu.irptIO == Interrupts.IOTerminado) { // existe interrupção de IO
@@ -849,6 +920,11 @@ public class Sistema {
 
                     System.out.println("irptIO = " + hw.cpu.irptIO);
                     System.out.println("Interrupcao tratada");
+                }
+
+                if(!pageFaultResp.isEmpty()) {
+                    pageFaultResp.remove();
+                    ready.add(blockedMem.remove());
                 }
 
                 //System.out.println(ready.toString());
@@ -912,8 +988,9 @@ public class Sistema {
         public String toString(){
             String s = "Processo:" +
             "\n\tID: " + id + " | Nome: " + name + " | nEstado do PC: " + pcState + "\n\tPaginas Alocadas: ";
-            for (int i : tabelaPag) {
-                s = s + i + ", ";
+            for (int i = 0; i < tabelaPag.length; i++) {
+                if(onMemory[i]) s = s + tabelaPag[i] + " (M), ";
+                else s = s + i + " (D), ";
             }
             //      "\nEstado dos registradores: ";
             //for (int n : regState) {
@@ -931,13 +1008,19 @@ public class Sistema {
 
         boolean alocaUm(PCB pcb, int pagN){
             if(so.qtdFramesDisp == 0){ //nao tem mais frame disponivel, troca pagina
-                //LOCK
                 int frame = frameOrder.remove();
 
                 int oldProcess = so.posOcupadas[frame]; //pega o id do processo que ta ocupando esse frame
                 int oldPageRef = so.pagRef[frame]; //pega a pagina que ta nesse frame
 
-                so.utils.loadPageToDisk(oldProcess, oldPageRef); //salva a pagina que ta no frame no disco
+                //so.utils.loadPageToDisk(oldProcess, oldPageRef); //salva a pagina que ta no frame no disco
+                //add requisicao de page fault na fila
+                pageFaultReq.add(new PageFaultRequest(oldProcess, oldPageRef, "LOAD_TO_DISK"));
+                //try {
+                //    semPFTerminado.acquire();
+                //} catch (InterruptedException e) {
+                //    e.printStackTrace();
+                //}
 
                 pcb.tabelaPag[pagN] = frame;
                 pcb.onMemory[pagN] = true;
@@ -945,6 +1028,12 @@ public class Sistema {
                 so.posOcupadas[frame] = pcb.id;
                 so.pagRef[frame] = pagN;
                 frameOrder.add(frame);
+
+                System.out.print("Ordem de frames: ");
+                for(int i : frameOrder) {
+                    System.out.print(i + " ");
+                }
+                System.out.println();
 
                 System.out.println("Frame " + frame + " trocou de dono de " + oldProcess + " pra " + pcb.id);
                 return true;
@@ -1174,6 +1263,7 @@ public class Sistema {
         hw.startIO();
 
         try {
+                hw.pf.join();
                 hw.io.join();
                 so.tMenu.join();
         } catch (InterruptedException e) {
