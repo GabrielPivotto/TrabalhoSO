@@ -83,7 +83,7 @@ public class Sistema {
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
-        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFault;
+        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFaultFinalizado, progFinalizado, progBloqueado, progTimeout, PageFault;
     }
 
     public class CPU {
@@ -93,7 +93,7 @@ public class Sistema {
         private int pc;     // ... composto de program counter,
         private Word ir;    // instruction register,
         private int[] reg;  // registradores da CPU
-        private Interrupts irpt; // durante instrucao, interrupcao pode ser sinalizada
+        private volatile Interrupts irpt = Interrupts.noInterrupt; // durante instrucao, interrupcao pode ser sinalizada
         private volatile Interrupts irptIO = Interrupts.noInterrupt;
         // FIM CONTEXTO DA CPU: tudo que precisa sobre o estado de um processo para
         // executa-lo
@@ -476,8 +476,7 @@ public class Sistema {
                         case STOP: // por enquanto, para execucao
                             sysCall.stop();
                             cpuStop = true;
-                            so.gerenteProg.desalocaProcesso(pcb.id);
-                            fimCiclo = 0;
+                            irpt =  Interrupts.progFinalizado;
                             break;
 
                         // Inexistente
@@ -663,27 +662,93 @@ public class Sistema {
         }
 
         public void handle(Interrupts irpt) {
-            if(irpt == Interrupts.IOTerminado) {
-                //tratar interrupcao de IO terminada
-                
+            switch (irpt) {
+                case noInterrupt:
+                    return;
+                case IOTerminado:
+                    break;
+                case intEnderecoInvalido:
+                    break;
+                case intInstrucaoInvalida:
+                    break;
+                case intOverflow:
+                    break;
+                case pageFaultFinalizado:
+                    System.out.println("Removeu da fila de blockedMem");
+                    so.ready.add(so.blockedMem.remove());
+                    break;
+                case progBloqueado:
+                    System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blocked");
+                    so.blocked.add(so.currentProcess.id);
+                    break;
+                case progFinalizado:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    break;
+                case progTimeout:
+                    int currID = so.currentProcess.id;
+                    System.out.println("Adicionado ID " + currID + " a fila de ready");
+                    so.ready.add(currID);
+                    break;
+                case PageFault:
+                    System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blockedMem");
+                    so.blockedMem.add(so.currentProcess.id);
+                    break;
+                default:
+                    break;
             
-                return;
             }
 
+            if(!so.ready.isEmpty()){
+                PCB nextProcess = so.getProcesso(so.ready.remove());
+                so.currentProcess = so.getProcesso(0)
+            }
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
         }
+    }
 
-        public void handle(Interrupts irpt, PCB pcb) {
-            if(irpt == Interrupts.pageFault) {
+    public class PageFaultHandling{
+        public PageFaultHandling(HW _hw) {
+            hw = _hw;
+        }
+
+        public void handle(int pag) {
             
-                return;
-            }
+                //if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
+                PCB pcb = so.currentProcess;
+                int[] tabPag = so.currentProcess.tabelaPag;
+    
+                if(tabPag[pag] < 0) {
+                    //if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
+                    //irpt = Interrupts.pageFault;
+    
+                    so.gerenteMem.alocaUm(pcb, pag);
+                    PFReq.add(new PageFaultRequest(pcb.id, pag, "LOAD_PAGE"));
+                    //so.utils.loadPage(pcb.id, pag);
+                    
+                    //PFResp.add(Interrupts.pageFault);
+                }
+                else if(!pcb.onMemory[pag]){
+                    //if(debug) {System.out.println("Página " + pag + " esta em disco");}
+                    //irpt = Interrupts.pageFault;
+    
+                    int diskFrame = tabPag[pag];
+                    so.gerenteMem.alocaUm(pcb, pag);
+                    int memFrame = tabPag[pag];
+                    PFReq.add(new PageFaultRequest(pcb.id, pag, diskFrame, memFrame, "LOAD_FROM_DISK"));
+                    //so.utils.loadPageFromDisk(diskFrame, memFrame);
+    
+                    //if(debug) {System.out.println("===================================================");}
+                    //PFResp.add(Interrupts.pageFault);
+                }
+    
+                /*if(debug) {
+                    System.out.println("Página " + pag + " esta em memoria");
+                    System.out.println("===================================================");
+                }*/
+            
 
-            // apenas avisa - todas interrupcoes neste momento finalizam o programa
-            System.out.println(
-                    "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
         }
     }
 
@@ -877,9 +942,7 @@ public class Sistema {
 
 
         private void execAll(){
-            Queue<Integer> ready = new LinkedList<Integer>();
-            Queue<Integer> blocked = new LinkedList<Integer>();
-            LinkedList<Integer> blockedMem = new LinkedList<Integer>();
+           
 
             System.out.println("Frames disponíveis: " + so.qtdFramesDisp);
             System.out.println("Tamanho de frame: " + so.tamFrame);
@@ -922,11 +985,11 @@ public class Sistema {
                     System.out.println("Interrupcao tratada");
                 }
 
-                if(!PFResp.isEmpty()) {
+                /*if(!PFResp.isEmpty()) {
                     System.out.println("Removeu da fila de blockedMem");
                     ready.add(blockedMem.remove());
                     PFResp.remove();
-                }
+                }*/
 
                 //System.out.println(ready.toString());
                 if(!ready.isEmpty()) {
@@ -1176,12 +1239,18 @@ public class Sistema {
         public int[] pagRef;        // qual pag do programa estre frame representa
         public ThreadMenu tMenu; 
         public ThreadExecAll tExecAll;
+        public PCB currentProcess; 
+        public Queue<Integer> ready = new LinkedList<Integer>();
+        public Queue<Integer> blocked = new LinkedList<Integer>();
+        public Queue<Integer> blockedMem = new LinkedList<Integer>();
+        public PageFaultHandling pf;
 
         public SO(HW hw, int _tamFrame) {
             ih = new InterruptHandling(hw); // rotinas de tratamento de int
             sc = new SysCallHandling(hw); // chamadas de sistema
             hw.cpu.setAddressOfHandlers(ih, sc);
             utils = new Utilities(hw);
+            pf = new PageFaultHandling(hw);
 
             tamFrame = _tamFrame;
             gerenteMem = new GM();
