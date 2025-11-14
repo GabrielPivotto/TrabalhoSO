@@ -150,7 +150,8 @@ public class Sistema {
 
         private boolean isOnMem(int pag){
             if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
-
+            if(tabPag == null) return true;
+            
             if(tabPag[pag] < 0) {
                 if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
                 //irpt = Interrupts.pageFault;
@@ -219,7 +220,7 @@ public class Sistema {
             //checar se pagina ta em frameOrder
             //se estiver, tira ele da lista
             //se nao estiver, da pageFault
-            while(true){
+            while(!turnOff){
                 cpuStop = false;
                 irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
                 int instCount = 0;
@@ -243,15 +244,14 @@ public class Sistema {
                         break;
                     }
 
-                    so.gerenteMem.frameOrder.remove((Integer) tabPag[pagAtual]);
-                    so.gerenteMem.frameOrder.add(tabPag[pagAtual]);
+                    /*so.gerenteMem.frameOrder.remove((Integer) tabPag[pagAtual]);
+                    so.gerenteMem.frameOrder.add(tabPag[pagAtual]);*/
 
                     if(legal(pc, tabPag)) { // pc valido
                         ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
                         // resto é dump de debug
 
                         if(debug) {
-                            System.out.println(pcb);
 
                             System.out.print("\tregs: ");
                                 for (int i = 0; i < 10; i++) {
@@ -667,55 +667,75 @@ public class Sistema {
         }
 
         public void handle(Interrupts irpt) {
+            boolean isOver = false;
             switch (irpt) {
                 case noInterrupt:
                     return;
                 case IOTerminado:
+                    System.out.println("Removeu da fila de blocked");
+                    so.ready.add(so.blocked.remove());
                     break;
                 case intEnderecoInvalido:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
                     break;
                 case intInstrucaoInvalida:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
                     break;
                 case intOverflow:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
                     break;
                 case pageFaultFinalizado:
                     System.out.println("Removeu da fila de blockedMem");
                     so.ready.add(so.blockedMem.remove());
                     break;
+
                 case progBloqueado:
                     System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blocked");
                     so.blocked.add(so.currentProcess.id);
                     break;
+
                 case progFinalizado:
                     so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
                     break;
+
                 case progTimeout:
                     int currID = so.currentProcess.id;
                     System.out.println("Adicionado ID " + currID + " a fila de ready");
                     so.ready.add(currID);
                     break;
+
                 case PageFault:
                     System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blockedMem");
                     so.blockedMem.add(so.currentProcess.id);
                     break;
                 default:
                     break;
-            
             }
 
             //salva no PCB
-            so.currentProcess.onMemory = hw.cpu.onMemory;
-            so.currentProcess.pcState = hw.cpu.pc;
-            so.currentProcess.regState = hw.cpu.reg;
-            so.currentProcess.tabelaPag = hw.cpu.tabPag;
+            if(!isOver){
+                so.currentProcess.pcState = hw.cpu.pc;
+                so.currentProcess.regState = hw.cpu.reg;
+                so.currentProcess.tabelaPag = hw.cpu.tabPag;
+                so.currentProcess.onMemory = hw.cpu.onMemory;
+            }
 
             if(!so.ready.isEmpty()){
-                PCB nextProcess = so.getProcesso(so.ready.remove());
-                so.currentProcess = nextProcess;
+                so.currentProcess = so.getProcesso(so.ready.remove());
             }
             else {so.currentProcess = dummy;}
 
             
+            hw.cpu.pc =so.currentProcess.pcState;
+            hw.cpu.reg = so.currentProcess.regState;
+            hw.cpu.tabPag = so.currentProcess.tabelaPag;
+            hw.cpu.onMemory = so.currentProcess.onMemory;
+
+
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
