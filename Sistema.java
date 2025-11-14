@@ -79,7 +79,7 @@ public class Sistema {
         JMPIGK, JMPILK, JMPIEK, JMPIGT,
         ADDI, SUBI, ADD, SUB, MULT, // matematicos
         LDI, LDD, STD, LDX, STX, MOVE, // movimentacao
-        SYSCALL, STOP                  // chamada de sistema e parada
+        SYSCALL, STOP, NOOP                  // chamada de sistema e parada
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
@@ -107,6 +107,7 @@ public class Sistema {
 
         private InterruptHandling ih;    // significa desvio para rotinas de tratamento de Int - se int ligada, desvia
         private SysCallHandling sysCall; // significa desvio para tratamento de chamadas de sistema
+        private PageFaultHandling pf;
 
         private boolean cpuStop;    // flag para parar CPU - caso de interrupcao que acaba o processo, ou chamada stop - 
         // nesta versao acaba o sistema no fim do prog
@@ -125,9 +126,10 @@ public class Sistema {
 
         }
 
-        public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall) {
+        public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall, PageFaultHandling _pf) {
             ih = _ih;                  // aponta para rotinas de tratamento de int
             sysCall = _sysCall;        // aponta para rotinas de tratamento de chamadas de sistema
+            pf = _pf;
         }
 
         public void setUtilities(Utilities _u) {
@@ -138,6 +140,7 @@ public class Sistema {
 
         // verificação de enderecamento 
         private boolean legal(int e, int[] tabPag) { // todo acesso a memoria tem que ser verificado se é válido - 
+            if(tabPag == null) return true;
             // aqui no caso se o endereco é um endereco valido em toda memoria
             if (e >= 0 && e < tabPag.length * so.tamFrame) { //se "e" nao for maior que a qtd total de linhas do programa
                 if(debug) {System.out.println("Endereco \"" + e + "\" eh valido");}
@@ -239,7 +242,7 @@ public class Sistema {
 
                     if(!isOnMem(pagAtual)) {
                         cpuStop = true;
-                        so.pf.handle(pagAtual);
+                        pf.handle(pagAtual);
                         irpt = Interrupts.PageFault;
                         break;
                     }
@@ -248,7 +251,11 @@ public class Sistema {
                     so.gerenteMem.frameOrder.add(tabPag[pagAtual]);*/
 
                     if(legal(pc, tabPag)) { // pc valido
-                        ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+
+                        if(tabPag != null) ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+                        else{
+                            ir = new Word(Opcode.NOOP, 0, 0, 0);
+                        }
                         // resto é dump de debug
 
                         if(debug) {
@@ -264,7 +271,7 @@ public class Sistema {
 
                             System.out.println("pagina atual = " + pagAtual);
                             System.out.println("linha atual = " + linhaAtual);
-                            System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
+                            if(tabPag != null) System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
                         }
 
                         // --------------------------------------------------------------------------------------------------
@@ -283,7 +290,7 @@ public class Sistema {
 
                                     if(!isOnMem(pag)) {
                                         cpuStop = true;
-                                        so.pf.handle(pag);
+                                        pf.handle(pag);
                                         irpt = Interrupts.PageFault;
                                         break;
                                     }
@@ -299,7 +306,7 @@ public class Sistema {
 
                                     if(!isOnMem(pag)) {
                                         cpuStop = true;
-                                        so.pf.handle(pag);
+                                        pf.handle(pag);
                                         irpt = Interrupts.PageFault;
                                         break;
                                     }
@@ -315,7 +322,7 @@ public class Sistema {
 
                                     if(!isOnMem(pag)) {
                                         cpuStop = true;
-                                        so.pf.handle(pag);
+                                        pf.handle(pag);
                                         irpt = Interrupts.PageFault;
                                         break;
                                     }
@@ -336,7 +343,7 @@ public class Sistema {
 
                                     if(!isOnMem(pag)) {
                                         cpuStop = true;
-                                        so.pf.handle(pag);
+                                        pf.handle(pag);
                                         irpt = Interrupts.PageFault;
                                         break;
                                     }
@@ -483,6 +490,8 @@ public class Sistema {
                                 irpt =  Interrupts.progFinalizado;
                                 break;
 
+                            case NOOP:
+                                break;
                             // Inexistente
                             default:
                                 irpt = Interrupts.intInstrucaoInvalida;
@@ -674,6 +683,7 @@ public class Sistema {
                 case IOTerminado:
                     System.out.println("Removeu da fila de blocked");
                     so.ready.add(so.blocked.remove());
+                    hw.cpu.irptIO = Interrupts.noInterrupt;
                     break;
                 case intEnderecoInvalido:
                     so.gerenteProg.desalocaProcesso(so.currentProcess.id);
@@ -690,6 +700,7 @@ public class Sistema {
                 case pageFaultFinalizado:
                     System.out.println("Removeu da fila de blockedMem");
                     so.ready.add(so.blockedMem.remove());
+                    hw.cpu.irptPF = Interrupts.noInterrupt;
                     break;
 
                 case progBloqueado:
@@ -1282,9 +1293,9 @@ public class Sistema {
         public SO(HW hw, int _tamFrame) {
             ih = new InterruptHandling(hw); // rotinas de tratamento de int
             sc = new SysCallHandling(hw); // chamadas de sistema
-            hw.cpu.setAddressOfHandlers(ih, sc);
-            utils = new Utilities(hw);
             pf = new PageFaultHandling(hw);
+            hw.cpu.setAddressOfHandlers(ih, sc, pf);
+            utils = new Utilities(hw);
 
             tamFrame = _tamFrame;
             gerenteMem = new GM();
