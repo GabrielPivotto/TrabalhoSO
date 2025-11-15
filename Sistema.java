@@ -79,11 +79,11 @@ public class Sistema {
         JMPIGK, JMPILK, JMPIEK, JMPIGT,
         ADDI, SUBI, ADD, SUB, MULT, // matematicos
         LDI, LDD, STD, LDX, STX, MOVE, // movimentacao
-        SYSCALL, STOP                  // chamada de sistema e parada
+        SYSCALL, STOP, NOOP                  // chamada de sistema e parada
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
-        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFault;
+        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFaultFinalizado, progFinalizado, progBloqueado, progTimeout, PageFault, newProcess;
     }
 
     public class CPU {
@@ -93,8 +93,12 @@ public class Sistema {
         private int pc;     // ... composto de program counter,
         private Word ir;    // instruction register,
         private int[] reg;  // registradores da CPU
-        private Interrupts irpt; // durante instrucao, interrupcao pode ser sinalizada
+        private int[] tabPag;
+        private boolean[] onMemory;
+
+        private volatile Interrupts irpt = Interrupts.noInterrupt; // durante instrucao, interrupcao pode ser sinalizada
         private volatile Interrupts irptIO = Interrupts.noInterrupt;
+        private volatile Interrupts irptPF = Interrupts.noInterrupt;
         // FIM CONTEXTO DA CPU: tudo que precisa sobre o estado de um processo para
         // executa-lo
         // nas proximas versoes isto pode modificar
@@ -103,9 +107,11 @@ public class Sistema {
 
         private InterruptHandling ih;    // significa desvio para rotinas de tratamento de Int - se int ligada, desvia
         private SysCallHandling sysCall; // significa desvio para tratamento de chamadas de sistema
+        private PageFaultHandling pf;
 
         private boolean cpuStop;    // flag para parar CPU - caso de interrupcao que acaba o processo, ou chamada stop - 
         // nesta versao acaba o sistema no fim do prog
+        private int instMax = 3; //nro de instrucoes ate timeout
 
         // auxilio aa depuração
         private boolean debug;      // se true entao mostra cada instrucao em execucao
@@ -120,9 +126,10 @@ public class Sistema {
 
         }
 
-        public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall) {
+        public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall, PageFaultHandling _pf) {
             ih = _ih;                  // aponta para rotinas de tratamento de int
             sysCall = _sysCall;        // aponta para rotinas de tratamento de chamadas de sistema
+            pf = _pf;
         }
 
         public void setUtilities(Utilities _u) {
@@ -133,6 +140,7 @@ public class Sistema {
 
         // verificação de enderecamento 
         private boolean legal(int e, int[] tabPag) { // todo acesso a memoria tem que ser verificado se é válido - 
+            if(tabPag == null) return true;
             // aqui no caso se o endereco é um endereco valido em toda memoria
             if (e >= 0 && e < tabPag.length * so.tamFrame) { //se "e" nao for maior que a qtd total de linhas do programa
                 if(debug) {System.out.println("Endereco \"" + e + "\" eh valido");}
@@ -143,33 +151,32 @@ public class Sistema {
             }
         }
 
-        private boolean isOnMem(PCB pcb, int pag){
+        private boolean isOnMem(int pag){
             if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
-
-            int[] tabPag = pcb.tabelaPag;
-
+            if(tabPag == null) return true;
+            
             if(tabPag[pag] < 0) {
                 if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
                 //irpt = Interrupts.pageFault;
 
-                so.gerenteMem.alocaUm(pcb, pag);
-                PFReq.add(new PageFaultRequest(pcb.id, pag, "LOAD_PAGE"));
+                //so.gerenteMem.alocaUm(pcb, pag);
+                //PFReq.add(new PageFaultRequest(pcb.id, pag, "LOAD_PAGE"));
                 //so.utils.loadPage(pcb.id, pag);
                 
                 //PFResp.add(Interrupts.pageFault);
                 return false;
             }
-            else if(!pcb.onMemory[pag]){
+            else if(onMemory[pag]){
                 if(debug) {System.out.println("Página " + pag + " esta em disco");}
                 //irpt = Interrupts.pageFault;
 
-                int diskFrame = tabPag[pag];
-                so.gerenteMem.alocaUm(pcb, pag);
-                int memFrame = tabPag[pag];
-                PFReq.add(new PageFaultRequest(pcb.id, pag, diskFrame, memFrame, "LOAD_FROM_DISK"));
+                //int diskFrame = tabPag[pag];
+                //so.gerenteMem.alocaUm(pcb, pag);
+                //int memFrame = tabPag[pag];
+                //PFReq.add(new PageFaultRequest(pcb.id, pag, diskFrame, memFrame, "LOAD_FROM_DISK"));
                 //so.utils.loadPageFromDisk(diskFrame, memFrame);
 
-                if(debug) {System.out.println("===================================================");}
+                //if(debug) {System.out.println("===================================================");}
                 //PFResp.add(Interrupts.pageFault);
                 return false;
             }
@@ -199,16 +206,16 @@ public class Sistema {
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
         }*/
 
-        public int run(int id, int instMax) {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
+        public void run() {                               // execucao da CPU supoe que o contexto da CPU, vide acima, 
             // esta devidamente setado
-            PCB pcb = so.getProcesso(id);
+            /*PCB pcb = so.getProcesso(id);
             pc = pcb.pcState;                                     // pc cfe endereco logico
             reg = pcb.regState;
             irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
             
             //System.out.println("Qtd IO = " + IOTerminados);
 
-            int[] tabPag = pcb.tabelaPag;
+            int[] tabPag = pcb.tabelaPag;*/
             int tFrame = so.tamFrame;
             so.atualizaPtrProcess(id); // atualiza o ptr que diz qual processo esta rodando
             // (aponta pra pos na lista de processos do S.O.)
@@ -216,303 +223,307 @@ public class Sistema {
             //checar se pagina ta em frameOrder
             //se estiver, tira ele da lista
             //se nao estiver, da pageFault
-            
-            cpuStop = false;
-            int fimCiclo = 1; //1 - terminou ciclo normal; 
-                            //2 - bloqueado por IO; 
-                            //3 - bloqueado por PageFault
-                            //0 - terminou execucao
+            while(!turnOff){
+                cpuStop = false;
+                irpt = Interrupts.noInterrupt;                // reset da interrupcao registrada
+                int instCount = 0;
+                while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
+                    // --------------------------------------------------------------------------------------------------
+                    // FASE DE FETCH
 
-            int instCount = 0;
-            while (!cpuStop) {      // ciclo de instrucoes. acaba cfe resultado da exec da instrucao, veja cada caso.
-                // --------------------------------------------------------------------------------------------------
-                // FASE DE FETCH
+                    System.out.print("frameOrder [");
+                    for(int i : so.gerenteMem.frameOrder) {
+                        System.out.print(i + " ");
+                    }
+                    System.out.println("]");
 
-                System.out.print("frameOrder [");
-                for(int i : so.gerenteMem.frameOrder) {
-                    System.out.print(i + " ");
-                }
-                System.out.println("]");
+                    int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
+                    int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
 
-                int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
-                int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
-
-                if(!isOnMem(pcb, pagAtual)) {
-                    cpuStop = true;
-                    fimCiclo = 3;
-                    break;
-                }
-
-                so.gerenteMem.frameOrder.remove((Integer) tabPag[pagAtual]);
-                so.gerenteMem.frameOrder.add(tabPag[pagAtual]);
-
-                if(legal(pc, tabPag)) { // pc valido
-                    ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
-                    // resto é dump de debug
-
-                    if(debug) {
-                        System.out.println(pcb);
-
-                        System.out.print("\tregs: ");
-                            for (int i = 0; i < 10; i++) {
-                                System.out.print("r[" + i + "]: " + reg[i] + " ");
-                            }
-                        System.out.println();
-
-                        System.out.print("\tpc: " + pc + " | exec: ");
-                        u.dump(ir);
-
-                        System.out.println("pagina atual = " + pagAtual);
-                        System.out.println("linha atual = " + linhaAtual);
-                        System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
+                    if(!isOnMem(pagAtual)) {
+                        cpuStop = true;
+                        pf.handle(pagAtual);
+                        irpt = Interrupts.PageFault;
+                        break;
                     }
 
-                    // --------------------------------------------------------------------------------------------------
-                    // FASE DE EXECUCAO DA INSTRUCAO CARREGADA NO ir
-                    switch (ir.opc) {       // conforme o opcode (código de operação) executa
+                    /*so.gerenteMem.frameOrder.remove((Integer) tabPag[pagAtual]);
+                    so.gerenteMem.frameOrder.add(tabPag[pagAtual]);*/
 
-                        // Instrucoes de Busca e Armazenamento em Memoria
-                        case LDI: // Rd ← k        veja a tabela de instrucoes do HW simulado para entender a semantica da instrucao
-                            reg[ir.ra] = ir.p;
-                            pc++;
-                            break;
-                        case LDD: // Rd <- [A]
-                            if (legal(ir.p, tabPag)) {
-                                int pag = ir.p / tFrame;
-                                int deslocamento = ir.p % tFrame;
+                    if(legal(pc, tabPag)) { // pc valido
 
-                                if(!isOnMem(pcb, pag)) {
-                                    cpuStop = true;
-                                    fimCiclo = 3;
-                                    break;
+                        if(tabPag != null) ir = m[tabPag[pagAtual] * tFrame + linhaAtual];  // <<<<<<<<<<<< AQUI faz FETCH - busca posicao da memoria apontada por pc, guarda em ir
+                        else{
+                            ir = new Word(Opcode.NOOP, 0, 0, 0);
+                        }
+                        // resto é dump de debug
+
+                        if(debug) {
+
+                            System.out.print("\tregs: ");
+                                for (int i = 0; i < 10; i++) {
+                                    System.out.print("r[" + i + "]: " + reg[i] + " ");
                                 }
+                            System.out.println();
 
-                                reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
+                            System.out.print("\tpc: " + pc + " | exec: ");
+                            u.dump(ir);
+
+                            System.out.println("pagina atual = " + pagAtual);
+                            System.out.println("linha atual = " + linhaAtual);
+                            if(tabPag != null) System.out.println("Endereco traduzido = " + (tabPag[pagAtual] * tFrame + linhaAtual));
+                        }
+
+                        // --------------------------------------------------------------------------------------------------
+                        // FASE DE EXECUCAO DA INSTRUCAO CARREGADA NO ir
+                        switch (ir.opc) {       // conforme o opcode (código de operação) executa
+
+                            // Instrucoes de Busca e Armazenamento em Memoria
+                            case LDI: // Rd ← k        veja a tabela de instrucoes do HW simulado para entender a semantica da instrucao
+                                reg[ir.ra] = ir.p;
                                 pc++;
-                            }
-                            break;
-                        case LDX: // RD <- [RS] // NOVA
-                            if (legal(reg[ir.rb], tabPag)) {
-                                int pag = reg[ir.rb] / tFrame;
-                                int deslocamento = reg[ir.rb] % tFrame;
+                                break;
+                            case LDD: // Rd <- [A]
+                                if (legal(ir.p, tabPag)) {
+                                    int pag = ir.p / tFrame;
+                                    int deslocamento = ir.p % tFrame;
 
-                                if(!isOnMem(pcb, pag)) {
-                                    cpuStop = true;
-                                    fimCiclo = 3;
-                                    break;
+                                    if(!isOnMem(pag)) {
+                                        cpuStop = true;
+                                        pf.handle(pag);
+                                        irpt = Interrupts.PageFault;
+                                        break;
+                                    }
+
+                                    reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
+                                    pc++;
                                 }
+                                break;
+                            case LDX: // RD <- [RS] // NOVA
+                                if (legal(reg[ir.rb], tabPag)) {
+                                    int pag = reg[ir.rb] / tFrame;
+                                    int deslocamento = reg[ir.rb] % tFrame;
 
-                                reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
-                                pc++;
-                            }
-                            break;
-                        case STD: // [A] ← Rs
-                            if (legal(ir.p, tabPag)) {
-                                int pag = ir.p / tFrame;
-                                int deslocamento = ir.p % tFrame;
+                                    if(!isOnMem(pag)) {
+                                        cpuStop = true;
+                                        pf.handle(pag);
+                                        irpt = Interrupts.PageFault;
+                                        break;
+                                    }
 
-                                if(!isOnMem(pcb, pag)) {
-                                    cpuStop = true;
-                                    fimCiclo = 3;
-                                    break;
+                                    reg[ir.ra] = m[tabPag[pag] * tFrame + deslocamento].p;
+                                    pc++;
                                 }
+                                break;
+                            case STD: // [A] ← Rs
+                                if (legal(ir.p, tabPag)) {
+                                    int pag = ir.p / tFrame;
+                                    int deslocamento = ir.p % tFrame;
 
-                                m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
-                                m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.ra];
-                                pc++;
-                                //if (debug) {
-                                //    System.out.print("                                  ");
-                                //    u.dump(ir.p, ir.p + 1);
-                                //}
-                            }
-                            break;
-                        case STX: // [Rd] ←Rs
-                            if (legal(reg[ir.ra], tabPag)) {
-                                int pag = reg[ir.ra] / tFrame;
-                                int deslocamento = reg[ir.ra] % tFrame;
+                                    if(!isOnMem(pag)) {
+                                        cpuStop = true;
+                                        pf.handle(pag);
+                                        irpt = Interrupts.PageFault;
+                                        break;
+                                    }
 
-                                if(!isOnMem(pcb, pag)) {
-                                    cpuStop = true;
-                                    fimCiclo = 3;
-                                    break;
+                                    m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
+                                    m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.ra];
+                                    pc++;
+                                    //if (debug) {
+                                    //    System.out.print("                                  ");
+                                    //    u.dump(ir.p, ir.p + 1);
+                                    //}
                                 }
+                                break;
+                            case STX: // [Rd] ←Rs
+                                if (legal(reg[ir.ra], tabPag)) {
+                                    int pag = reg[ir.ra] / tFrame;
+                                    int deslocamento = reg[ir.ra] % tFrame;
 
-                                m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
-                                m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
-                                pc++;
-                            }
-                            ;
-                            break;
-                        case MOVE: // RD <- RS
-                            reg[ir.ra] = reg[ir.rb];
-                            pc++;
-                            break;
-                        // Instrucoes Aritmeticas
-                        case ADD: // Rd ← Rd + Rs
-                            reg[ir.ra] = reg[ir.ra] + reg[ir.rb];
-                            testOverflow(reg[ir.ra]);
-                            pc++;
-                            break;
-                        case ADDI: // Rd ← Rd + k
-                            reg[ir.ra] = reg[ir.ra] + ir.p;
-                            testOverflow(reg[ir.ra]);
-                            pc++;
-                            break;
-                        case SUB: // Rd ← Rd - Rs
-                            reg[ir.ra] = reg[ir.ra] - reg[ir.rb];
-                            testOverflow(reg[ir.ra]);
-                            pc++;
-                            break;
-                        case SUBI: // RD <- RD - k // NOVA
-                            reg[ir.ra] = reg[ir.ra] - ir.p;
-                            testOverflow(reg[ir.ra]);
-                            pc++;
-                            break;
-                        case MULT: // Rd <- Rd * Rs
-                            reg[ir.ra] = reg[ir.ra] * reg[ir.rb];
-                            testOverflow(reg[ir.ra]);
-                            pc++;
-                            break;
+                                    if(!isOnMem(pag)) {
+                                        cpuStop = true;
+                                        pf.handle(pag);
+                                        irpt = Interrupts.PageFault;
+                                        break;
+                                    }
 
-                        // Instrucoes JUMP
-                        case JMP: // PC <- k
-                            if(legal(ir.p, tabPag)) {
-                                pc = ir.p;
-                            }
-                            break;
-                        case JMPIM: // PC <- [A]
-                            if(legal(m[ir.p].p, tabPag)){
-                                pc = m[ir.p].p;
-                            }	
-                            break;
-                        case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
-                            if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
-                                pc = reg[ir.ra];
-                            } else {
+                                    m[tabPag[pag] * tFrame + deslocamento].opc = Opcode.DATA;
+                                    m[tabPag[pag] * tFrame + deslocamento].p = reg[ir.rb];
+                                    pc++;
+                                }
+                                ;
+                                break;
+                            case MOVE: // RD <- RS
+                                reg[ir.ra] = reg[ir.rb];
                                 pc++;
-                            }
-                            break;
-                        case JMPIGK: // If RC > 0 then PC <- k else PC++
-                            if (legal(ir.p, tabPag) && reg[ir.rb] > 0) {
-                                pc = ir.p;
-                            } else {
+                                break;
+                            // Instrucoes Aritmeticas
+                            case ADD: // Rd ← Rd + Rs
+                                reg[ir.ra] = reg[ir.ra] + reg[ir.rb];
+                                testOverflow(reg[ir.ra]);
                                 pc++;
-                            }
-                            break;
-                        case JMPILK: // If RC < 0 then PC <- k else PC++
-                            if (legal(ir.p, tabPag) && reg[ir.rb] < 0) {
-                                pc = ir.p;
-                            } else {
+                                break;
+                            case ADDI: // Rd ← Rd + k
+                                reg[ir.ra] = reg[ir.ra] + ir.p;
+                                testOverflow(reg[ir.ra]);
                                 pc++;
-                            }
-                            break;
-                        case JMPIEK: // If RC = 0 then PC <- k else PC++
-                            if (legal(ir.p, tabPag) &&reg[ir.rb] == 0) {
-                                pc = ir.p;
-                            } else {
+                                break;
+                            case SUB: // Rd ← Rd - Rs
+                                reg[ir.ra] = reg[ir.ra] - reg[ir.rb];
+                                testOverflow(reg[ir.ra]);
                                 pc++;
-                            }
-                            break;
-                        case JMPIL: // if Rc < 0 then PC <- Rs Else PC <- PC +1
-                            if (legal(ir.ra, tabPag) && reg[ir.rb] < 0) {
-                                pc = reg[ir.ra];
-                            } else {
+                                break;
+                            case SUBI: // RD <- RD - k // NOVA
+                                reg[ir.ra] = reg[ir.ra] - ir.p;
+                                testOverflow(reg[ir.ra]);
                                 pc++;
-                            }
-                            break;
-                        case JMPIE: // If Rc = 0 Then PC <- Rs Else PC <- PC +1
-                            if (legal(ir.ra, tabPag) && reg[ir.rb] == 0) {
-                                pc = reg[ir.ra];
-                            } else {
+                                break;
+                            case MULT: // Rd <- Rd * Rs
+                                reg[ir.ra] = reg[ir.ra] * reg[ir.rb];
+                                testOverflow(reg[ir.ra]);
                                 pc++;
-                            }
-                            break;
-                        case JMPIGM: // If RC > 0 then PC <- [A] else PC++
-                            if (legal(ir.p, tabPag)) {
-                                if (reg[ir.rb] > 0) {
+                                break;
+
+                            // Instrucoes JUMP
+                            case JMP: // PC <- k
+                                if(legal(ir.p, tabPag)) {
+                                    pc = ir.p;
+                                }
+                                break;
+                            case JMPIM: // PC <- [A]
+                                if(legal(m[ir.p].p, tabPag)){
+                                    pc = m[ir.p].p;
+                                }	
+                                break;
+                            case JMPIG: // If Rc > 0 Then PC ← Rs Else PC ← PC +1
+                                if (legal(ir.ra, tabPag) && reg[ir.rb] > 0) {
+                                    pc = reg[ir.ra];
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIGK: // If RC > 0 then PC <- k else PC++
+                                if (legal(ir.p, tabPag) && reg[ir.rb] > 0) {
+                                    pc = ir.p;
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPILK: // If RC < 0 then PC <- k else PC++
+                                if (legal(ir.p, tabPag) && reg[ir.rb] < 0) {
+                                    pc = ir.p;
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIEK: // If RC = 0 then PC <- k else PC++
+                                if (legal(ir.p, tabPag) &&reg[ir.rb] == 0) {
+                                    pc = ir.p;
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIL: // if Rc < 0 then PC <- Rs Else PC <- PC +1
+                                if (legal(ir.ra, tabPag) && reg[ir.rb] < 0) {
+                                    pc = reg[ir.ra];
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIE: // If Rc = 0 Then PC <- Rs Else PC <- PC +1
+                                if (legal(ir.ra, tabPag) && reg[ir.rb] == 0) {
+                                    pc = reg[ir.ra];
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIGM: // If RC > 0 then PC <- [A] else PC++
+                                if (legal(ir.p, tabPag)) {
+                                    if (reg[ir.rb] > 0) {
+                                        pc = m[ir.p].p;
+                                    } else {
+                                        pc++;
+                                    }
+                                }
+                                break;
+                            case JMPILM: // If RC < 0 then PC <- k else PC++
+                                if (legal(m[ir.p].p, tabPag) && reg[ir.rb] < 0) {
                                     pc = m[ir.p].p;
                                 } else {
                                     pc++;
                                 }
-                            }
-                            break;
-                        case JMPILM: // If RC < 0 then PC <- k else PC++
-                            if (legal(m[ir.p].p, tabPag) && reg[ir.rb] < 0) {
-                                pc = m[ir.p].p;
-                            } else {
+                                break;
+                            case JMPIEM: // If RC = 0 then PC <- k else PC++
+                                if (legal(m[ir.p].p, tabPag) && reg[ir.rb] == 0) {
+                                    pc = m[ir.p].p;
+                                } else {
+                                    pc++;
+                                }
+                                break;
+                            case JMPIGT: // If RS>RC then PC <- k else PC++
+                                if (legal(ir.p, tabPag) && reg[ir.ra] > reg[ir.rb]) {
+                                    pc = ir.p;
+                                } else {
+                                    pc++;
+                                }
+                                break;
+
+                            case DATA: // pc está sobre área supostamente de dados
+                                irpt = Interrupts.intInstrucaoInvalida;
+                                break;
+
+                            // Chamadas de sistema
+                            case SYSCALL:
+                                sysCall.handle(id, tabPag); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
+                                // temos IO
                                 pc++;
-                            }
-                            break;
-                        case JMPIEM: // If RC = 0 then PC <- k else PC++
-                            if (legal(m[ir.p].p, tabPag) && reg[ir.rb] == 0) {
-                                pc = m[ir.p].p;
-                            } else {
-                                pc++;
-                            }
-                            break;
-                        case JMPIGT: // If RS>RC then PC <- k else PC++
-                            if (legal(ir.p, tabPag) && reg[ir.ra] > reg[ir.rb]) {
-                                pc = ir.p;
-                            } else {
-                                pc++;
-                            }
-                            break;
+                                pcb.pcState = pc;
+                                pcb.regState = reg;
+                                irpt = Interrupts.progBloqueado;
+                                cpuStop = true; //ao fazer SYSCALL para IO precisa parar a CPU e escalonar outro processo
+                                break;
 
-                        case DATA: // pc está sobre área supostamente de dados
-                            irpt = Interrupts.intInstrucaoInvalida;
-                            break;
+                            case STOP: // por enquanto, para execucao
+                                sysCall.stop();
+                                cpuStop = true;
+                                irpt =  Interrupts.progFinalizado;
+                                break;
 
-                        // Chamadas de sistema
-                        case SYSCALL:
-                            sysCall.handle(id, tabPag); // <<<<< aqui desvia para rotina de chamada de sistema, no momento so
-                            // temos IO
-                            pc++;
-                            pcb.pcState = pc;
-                            pcb.regState = reg;
-                            fimCiclo = 2;
-                            cpuStop = true; //ao fazer SYSCALL para IO precisa parar a CPU e escalonar outro processo
-                            break;
-
-                        case STOP: // por enquanto, para execucao
-                            sysCall.stop();
-                            cpuStop = true;
-                            so.gerenteProg.desalocaProcesso(pcb.id);
-                            fimCiclo = 0;
-                            break;
-
-                        // Inexistente
-                        default:
-                            irpt = Interrupts.intInstrucaoInvalida;
-                            break;
+                            case NOOP:
+                                break;
+                            // Inexistente
+                            default:
+                                irpt = Interrupts.intInstrucaoInvalida;
+                                break;
+                        }
                     }
-                }
-                // --------------------------------------------------------------------------------------------------
-                // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
-                if (irpt != Interrupts.noInterrupt) { // existe interrupção
-                    ih.handle(irpt);                  // desvia para rotina de tratamento - esta rotina é do SO
-                    cpuStop = true;                   // nesta versao, para a CPU
-                }
-                //if (irptIO == Interrupts.IOTerminado) { // existe interrupção de IO
-                //    irptIO = Interrupts.noInterrupt;
-                //    
-                //    System.out.println("Interrupcao tratada");
-                //}
-                instCount++;
-                System.out.println(instCount + "---" + instMax);
-                if(instCount==instMax) {
-                    cpuStop = true;
-                    break;
-                }
+                    // --------------------------------------------------------------------------------------------------
+                    // VERIFICA INTERRUPÇÃO !!! - TERCEIRA FASE DO CICLO DE INSTRUÇÕES
+                    if (irpt != Interrupts.noInterrupt) { // existe interrupção
+                        ih.handle(irpt);                  // desvia para rotina de tratamento - esta rotina é do SO
+                        cpuStop = true;                   // nesta versao, para a CPU
+                    }
+                    if (irptIO != Interrupts.noInterrupt) { 
+                        ih.handle(irptIO);                  
+                        cpuStop = true;                   
+                    }
+                    if (irptPF != Interrupts.noInterrupt) {
+                        ih.handle(irptPF);                  
+                        cpuStop = true;      
+                    }
+                    instCount++;
+                    System.out.println(instCount + "---" + instMax);
+                    if(instCount==instMax) {
+                        cpuStop = true;
+                        break;
+                    }
 
-            } // FIM DO CICLO DE UMA INSTRUÇÃO
-            
+                } // FIM DO CICLO DE UMA INSTRUÇÃO
+            }
             //adiciona pagina em frameOrder
 
-            pcb.pcState = pc;
-            pcb.regState = reg;
-
             System.out.println("#################################################################");
-            return fimCiclo;
         }
     }
     // ------------------ C P U - fim
@@ -657,33 +668,142 @@ public class Sistema {
     public class InterruptHandling {
 
         private HW hw; // referencia ao hw se tiver que setar algo
+        private PCB dummy;
 
         public InterruptHandling(HW _hw) {
             hw = _hw;
+            dummy = new PCB(0, null, "Dummy"); //Dummy serve para NOOP
         }
 
         public void handle(Interrupts irpt) {
-            if(irpt == Interrupts.IOTerminado) {
-                //tratar interrupcao de IO terminada
+            boolean isOver = false;
+            switch (irpt) {
+                case noInterrupt:
+                    return;
+
+                case IOTerminado:
+                    System.out.println("Removeu da fila de blocked");
+                    so.ready.add(so.blocked.remove());
+                    hw.cpu.irptIO = Interrupts.noInterrupt;
+                    break;
+
+                case intEnderecoInvalido:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
+                    break;
+
+                case intInstrucaoInvalida:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
+                    break;
+
+                case intOverflow:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
+                    break;
+
+                case pageFaultFinalizado:
+                    System.out.println("Removeu da fila de blockedMem");
+                    so.ready.add(so.blockedMem.remove());
+                    hw.cpu.irptPF = Interrupts.noInterrupt;
+                    break;
+
+                case progBloqueado:
+                    System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blocked");
+                    so.blocked.add(so.currentProcess.id);
+                    break;
+
+                case progFinalizado:
+                    so.gerenteProg.desalocaProcesso(so.currentProcess.id);
+                    isOver = true;
+                    break;
+
+                case progTimeout:
+                    int currID = so.currentProcess.id;
+                    System.out.println("Adicionado ID " + currID + " a fila de ready");
+                    so.ready.add(currID);
+                    break;
+
+                case PageFault:
+                    System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blockedMem");
+                    so.blockedMem.add(so.currentProcess.id);
+                    break;
                 
-            
-                return;
+                case newProcess:
+                    if(so.currentProcess.id != 0) return;
+                    break;
+
+                default:
+                    break;
             }
+
+            //salva no PCB
+            if(!isOver){
+                so.currentProcess.pcState = hw.cpu.pc;
+                so.currentProcess.regState = hw.cpu.reg;
+                so.currentProcess.tabelaPag = hw.cpu.tabPag;
+                so.currentProcess.onMemory = hw.cpu.onMemory;
+            }
+
+            if(!so.ready.isEmpty()){
+                so.currentProcess = so.getProcesso(so.ready.remove());
+            }
+            else {so.currentProcess = dummy;}
+
+            
+            hw.cpu.pc =so.currentProcess.pcState;
+            hw.cpu.reg = so.currentProcess.regState;
+            hw.cpu.tabPag = so.currentProcess.tabelaPag;
+            hw.cpu.onMemory = so.currentProcess.onMemory;
+
 
             // apenas avisa - todas interrupcoes neste momento finalizam o programa
             System.out.println(
                     "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
         }
+    }
 
-        public void handle(Interrupts irpt, PCB pcb) {
-            if(irpt == Interrupts.pageFault) {
+    public class PageFaultHandling{
+        public PageFaultHandling(HW _hw) {
+            hw = _hw;
+        }
+
+        public void handle(int pag) {
             
-                return;
-            }
+                //if(debug) {System.out.println("=========Checagem de localizacao da pagina=========");}
+                PCB pcb = so.currentProcess;
+                int[] tabPag = so.currentProcess.tabelaPag;
+    
+                if(tabPag[pag] < 0) {
+                    //if(debug) {System.out.println("Página " + pag + " fora de memoria e disco");}
+                    //irpt = Interrupts.pageFault;
+    
+                    so.gerenteMem.alocaUm(pcb, pag);
+                    PFReq.add(new PageFaultRequest(pcb.id, pag, "LOAD_PAGE"));
+                    //so.utils.loadPage(pcb.id, pag);
+                    
+                    //PFResp.add(Interrupts.pageFault);
+                }
+                else if(!pcb.onMemory[pag]){
+                    //if(debug) {System.out.println("Página " + pag + " esta em disco");}
+                    //irpt = Interrupts.pageFault;
+    
+                    int diskFrame = tabPag[pag];
+                    so.gerenteMem.alocaUm(pcb, pag);
+                    int memFrame = tabPag[pag];
+                    PFReq.add(new PageFaultRequest(pcb.id, pag, diskFrame, memFrame, "LOAD_FROM_DISK"));
+                    //so.utils.loadPageFromDisk(diskFrame, memFrame);
+    
+                    //if(debug) {System.out.println("===================================================");}
+                    //PFResp.add(Interrupts.pageFault);
+                }
+    
+                /*if(debug) {
+                    System.out.println("Página " + pag + " esta em memoria");
+                    System.out.println("===================================================");
+                }*/
+            
 
-            // apenas avisa - todas interrupcoes neste momento finalizam o programa
-            System.out.println(
-                    "                                               Interrupcao " + irpt + "   pc: " + hw.cpu.pc);
         }
     }
 
@@ -747,6 +867,8 @@ public class Sistema {
                 int procID = so.gerenteProg.novoIdProcesso;
                 System.out.println("procID = " + procID);
                 loadPage(procID, 0); //SUBSTITUIR?
+                hw.cpu.irpt = Interrupts.newProcess;
+                so.ready.add(so.gerenteProg.novoIdProcesso);
                 return so.gerenteProg.novoIdProcesso;
             }
 
@@ -877,9 +999,7 @@ public class Sistema {
 
 
         private void execAll(){
-            Queue<Integer> ready = new LinkedList<Integer>();
-            Queue<Integer> blocked = new LinkedList<Integer>();
-            LinkedList<Integer> blockedMem = new LinkedList<Integer>();
+           
 
             System.out.println("Frames disponíveis: " + so.qtdFramesDisp);
             System.out.println("Tamanho de frame: " + so.tamFrame);
@@ -922,11 +1042,11 @@ public class Sistema {
                     System.out.println("Interrupcao tratada");
                 }
 
-                if(!PFResp.isEmpty()) {
+                /*if(!PFResp.isEmpty()) {
                     System.out.println("Removeu da fila de blockedMem");
                     ready.add(blockedMem.remove());
                     PFResp.remove();
-                }
+                }*/
 
                 //System.out.println(ready.toString());
                 if(!ready.isEmpty()) {
@@ -1176,11 +1296,17 @@ public class Sistema {
         public int[] pagRef;        // qual pag do programa estre frame representa
         public ThreadMenu tMenu; 
         public ThreadExecAll tExecAll;
+        public PCB currentProcess; 
+        public Queue<Integer> ready = new LinkedList<Integer>();
+        public Queue<Integer> blocked = new LinkedList<Integer>();
+        public Queue<Integer> blockedMem = new LinkedList<Integer>();
+        public PageFaultHandling pf;
 
         public SO(HW hw, int _tamFrame) {
             ih = new InterruptHandling(hw); // rotinas de tratamento de int
             sc = new SysCallHandling(hw); // chamadas de sistema
-            hw.cpu.setAddressOfHandlers(ih, sc);
+            pf = new PageFaultHandling(hw);
+            hw.cpu.setAddressOfHandlers(ih, sc, pf);
             utils = new Utilities(hw);
 
             tamFrame = _tamFrame;
@@ -1308,7 +1434,7 @@ public class Sistema {
         
         @Override
         public void run() {
-            so.utils.execAll();
+            hw.cpu.run();
         }
     }
 
