@@ -83,7 +83,7 @@ public class Sistema {
     }
 
     public enum Interrupts {           // possiveis interrupcoes que esta CPU gera
-        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFaultFinalizado, progFinalizado, progBloqueado, progTimeout, PageFault;
+        noInterrupt, intEnderecoInvalido, intInstrucaoInvalida, intOverflow, IOTerminado, pageFaultFinalizado, progFinalizado, progBloqueado, progTimeout, PageFault, newProcess;
     }
 
     public class CPU {
@@ -680,23 +680,28 @@ public class Sistema {
             switch (irpt) {
                 case noInterrupt:
                     return;
+
                 case IOTerminado:
                     System.out.println("Removeu da fila de blocked");
                     so.ready.add(so.blocked.remove());
                     hw.cpu.irptIO = Interrupts.noInterrupt;
                     break;
+
                 case intEnderecoInvalido:
                     so.gerenteProg.desalocaProcesso(so.currentProcess.id);
                     isOver = true;
                     break;
+
                 case intInstrucaoInvalida:
                     so.gerenteProg.desalocaProcesso(so.currentProcess.id);
                     isOver = true;
                     break;
+
                 case intOverflow:
                     so.gerenteProg.desalocaProcesso(so.currentProcess.id);
                     isOver = true;
                     break;
+
                 case pageFaultFinalizado:
                     System.out.println("Removeu da fila de blockedMem");
                     so.ready.add(so.blockedMem.remove());
@@ -723,6 +728,11 @@ public class Sistema {
                     System.out.println("Adicionado ID " + so.currentProcess.id + " a fila de blockedMem");
                     so.blockedMem.add(so.currentProcess.id);
                     break;
+                
+                case newProcess:
+                    if(so.currentProcess.id != 0) return;
+                    break;
+
                 default:
                     break;
             }
@@ -857,6 +867,8 @@ public class Sistema {
                 int procID = so.gerenteProg.novoIdProcesso;
                 System.out.println("procID = " + procID);
                 loadPage(procID, 0); //SUBSTITUIR?
+                hw.cpu.irpt = Interrupts.newProcess;
+                so.ready.add(so.gerenteProg.novoIdProcesso);
                 return so.gerenteProg.novoIdProcesso;
             }
 
