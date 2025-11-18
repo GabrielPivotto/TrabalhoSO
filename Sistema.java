@@ -669,7 +669,7 @@ public class Sistema {
             io = new DispositivoIO();
             pf = new DispositivoPF();
             //SUBSTITUIR VALORES POR TAM MEM
-            mem = new Memory(24);
+            mem = new Memory(64);
             memSec = new Memory(1024);
             cpu = new CPU(mem, true); // true liga debug
         }
@@ -981,8 +981,6 @@ public class Sistema {
                 int procID = so.gerenteProg.novoIdProcesso;
                 System.out.println("procID = " + procID);
                 loadPage(procID, 0); //SUBSTITUIR?
-                hw.cpu.irpt = Interrupts.newProcess;
-                so.ready.add(so.gerenteProg.novoIdProcesso);
                 return so.gerenteProg.novoIdProcesso;
             }
 
@@ -1500,7 +1498,7 @@ public class Sistema {
         
         @Override
         public void run() {
-            hw.cpu.run();
+            so.utils.execAll();
         }
     }
 
