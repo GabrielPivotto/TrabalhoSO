@@ -121,6 +121,7 @@ public class Sistema {
         private InterruptHandling ih;    // significa desvio para rotinas de tratamento de Int - se int ligada, desvia
         private SysCallHandling sysCall; // significa desvio para tratamento de chamadas de sistema
         private PageFaultHandling pf;
+        private PageFaultHandling pf;
 
         private boolean cpuStop;    // flag para parar CPU - caso de interrupcao que acaba o processo, ou chamada stop - 
         // nesta versao acaba o sistema no fim do prog
@@ -141,6 +142,7 @@ public class Sistema {
             //irptPF = new LinkedBlockingQueue<>();
         }
 
+        public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall, PageFaultHandling _pf) {
         public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall, PageFaultHandling _pf) {
             ih = _ih;                  // aponta para rotinas de tratamento de int
             sysCall = _sysCall;        // aponta para rotinas de tratamento de chamadas de sistema
@@ -227,6 +229,8 @@ public class Sistema {
                         System.out.println("]");
                     }
 
+                    int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
+                    int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
                     int pagAtual = pc / tFrame;   // pc/so.tamFrame -> pagina atual
                     int linhaAtual = pc % tFrame; // pc%so.tamFrame -> deslocamento na pagina
 
@@ -981,6 +985,8 @@ public class Sistema {
                 int procID = so.gerenteProg.novoIdProcesso;
                 System.out.println("procID = " + procID);
                 loadPage(procID, 0); //SUBSTITUIR?
+                hw.cpu.irpt = Interrupts.newProcess;
+                so.ready.add(so.gerenteProg.novoIdProcesso);
                 return so.gerenteProg.novoIdProcesso;
             }
 
@@ -1498,7 +1504,7 @@ public class Sistema {
         
         @Override
         public void run() {
-            so.utils.execAll();
+            hw.cpu.run();
         }
     }
 
